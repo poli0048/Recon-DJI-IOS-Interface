@@ -53,6 +53,7 @@
     const unsigned char *bytes= (const unsigned char *)(data.bytes);
     
     unsigned int bytes_written = 0;
+    [_socket_lock lock];
     while (bytes_written != packet->m_data.size()) {
         int remaining = data.length - bytes_written;
         const unsigned char *bytesNew = bytes + bytes_written;
@@ -60,6 +61,7 @@
         
         [NSThread sleepForTimeInterval: 0.001];
     }
+    [_socket_lock unlock];
 }
 
 - (void) sendPacket_CoreTelemetry {
