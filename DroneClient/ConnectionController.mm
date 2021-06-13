@@ -152,19 +152,23 @@
     [self sendPacket: &packet];
 }
 
+// TODO: Create real standard to send this data
+// instead of sending as a string (proof of concept and sample
+// use of API, maybe this information should be added to an
+// existing telemetry packet, or get a packet of its own
 - (void) sendPacket_RSSI {
-//    DroneInterface::Packet_MessageString packet_msg;
-//    DroneInterface::Packet packet;
-//    
-//    packet_msg.Type = 2;
-//    
+    DroneInterface::Packet_MessageString packet_msg;
+    DroneInterface::Packet packet;
+    
+    packet_msg.Type = 2;
+    
     DJILightbridgeAntennaRSSI *rssi;
     DJILightbridgeLink *link;
     
     int a1 = [rssi antenna1];
     int a2 = [rssi antenna2];
-    NSString *msg1 = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
-    NSLog(@"%@", msg1);
+    NSString *msg = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
+    NSLog(@"%@", msg);
     
     
 //    DJILightbridgeDataRate *rate;
@@ -174,11 +178,11 @@
 //    NSString *msg2 = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
 
     
-//    packet_msg.Message = std::string([msg UTF8String]);
-//
-//    packet_msg.Serialize(packet);
-//
-//    [self sendPacket: &packet];
+    packet_msg.Message = std::string([msg UTF8String]);
+
+    packet_msg.Serialize(packet);
+
+    [self sendPacket: &packet];
 }
 
 // Executes when SEND DEBUG COMMAND button is pressed
