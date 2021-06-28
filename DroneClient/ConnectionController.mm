@@ -14,6 +14,9 @@
 #import "Image.hpp"
 #import "Drone.hpp"
 
+#import <DJISDK/DJILightbridgeAntennaRSSI.h>
+#import <DJISDK/DJILightbridgeLink.h>
+
 @interface ConnectionController ()<DJISDKManagerDelegate, DJICameraDelegate, DJIBatteryDelegate, DJIBatteryAggregationDelegate, DJIFlightControllerDelegate, NSStreamDelegate, DJIVideoFeedListener, VideoFrameProcessor>
 
 @end
@@ -50,6 +53,7 @@
     const unsigned char *bytes= (const unsigned char *)(data.bytes);
     
     unsigned int bytes_written = 0;
+    [_socket_lock lock];
     while (bytes_written != packet->m_data.size()) {
         int remaining = data.length - bytes_written;
         const unsigned char *bytesNew = bytes + bytes_written;
@@ -57,6 +61,7 @@
         
         [NSThread sleepForTimeInterval: 0.001];
     }
+    [_socket_lock unlock];
 }
 
 - (void) sendPacket_CoreTelemetry {
@@ -147,12 +152,46 @@
     [self sendPacket: &packet];
 }
 
+// TODO: Create real standard to send this data
+// instead of sending as a string (proof of concept and sample
+// use of API, maybe this information should be added to an
+// existing telemetry packet, or get a packet of its own
+- (void) sendPacket_RSSI {
+    DroneInterface::Packet_MessageString packet_msg;
+    DroneInterface::Packet packet;
+    
+    packet_msg.Type = 2;
+    
+    DJILightbridgeAntennaRSSI *rssi;
+    DJILightbridgeLink *link;
+    
+    int a1 = [rssi antenna1];
+    int a2 = [rssi antenna2];
+    NSString *msg = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
+    NSLog(@"%@", msg);
+    
+    
+//    DJILightbridgeDataRate *rate;
+//    NSError *completion;
+//    [link getDataRateWithCompletion:(rate, completion];
+//
+//    NSString *msg2 = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
+
+    
+    packet_msg.Message = std::string([msg UTF8String]);
+
+    packet_msg.Serialize(packet);
+
+    [self sendPacket: &packet];
+}
+
 // Executes when SEND DEBUG COMMAND button is pressed
 - (IBAction)sendDebugMessage:(id)sender {
 //    [self sendPacket_CoreTelemetry];
 //    [self sendPacket_ExtendedTelemetry];
 //    [self sendPacket_Image];
 //    [self sendPacket_Acknowledgment:YES withPID:4];
+    [self sendPacket_RSSI];
     [self sendPacket_MessageString:TEST_MESSAGE ofType: 2];
 }
 
@@ -364,7 +403,7 @@
 - (void) configureConnectionToProduct {
     _uavConnectionStatusLabel.text = @"UAV Status: Connecting...";
 #if ENABLE_DEBUG_MODE
-    [DJISDKManager enableBridgeModeWithBridgeAppIP:@"192.168.1.56"];
+    [DJISDKManager enableBridgeModeWithBridgeAppIP:@"192.168.183.176"];
 #else
     [DJISDKManager startConnectionToProduct];
 #endif
@@ -392,7 +431,7 @@
             
             self->_frame_count = 1;
             
-//            [self sendPacket_MessageString:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1]; // for checking frame timing
+            [self sendPacket_MessageString:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1]; // for checking frame timing
             [self sendPacket_Image];
         }
         self->_frame_count++;
@@ -599,6 +638,7 @@
     
 //  KNOWN BUG: Different delay values or slow connections may lead to errors in server-side deserialization
     [self sendPacket_CoreTelemetry];
+    [self sendPacket_RSSI];
     [NSThread sleepForTimeInterval: 0.5];
     [self sendPacket_ExtendedTelemetry];
     [NSThread sleepForTimeInterval: 0.5];
