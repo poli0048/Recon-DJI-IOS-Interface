@@ -7,7 +7,7 @@
 
 // ECHAI Refactoring Notes:
 // ConnectionController.mm is called by the app when "connect" is hit in the UI
-// Everything in this function will default to the main thread. This is Bad
+// Everything in this function defaults to the main thread. This is Bad
 // As a rule: the only things that should be in the main thread are:
 //    - UI. This is a requirement by Apple/iOS. This includes updates to iOS app text
 //    - Event handling for critical packets such as emergency handling
@@ -21,8 +21,8 @@
 // - Logging
 
 // Own file:
-// - Inputstream and output stream generation
-// - WaypointMission and virtualstick commands
+// - Inputstream and output stream generation...maybe
+// - DJIWayPointMIssion Operator, WaypointMission and virtualstick commands
 
 // Still having some deserialization issues when controller update function
 // tries to send BOTH Core and Extended Telemetry
@@ -45,10 +45,6 @@
 
 #import <DJISDK/DJILightbridgeAntennaRSSI.h>
 #import <DJISDK/DJILightbridgeLink.h>
-
-struct CommsInterface {
-    DroneInterface::Packet packet;
-};
 
 @interface ConnectionController ()
 
@@ -88,10 +84,6 @@ struct CommsInterface {
     [super viewDidLoad];
     [self connectToServer];
 }
-
-
-
-
 
 
 // Executes when SEND DEBUG COMMAND button is pressed
@@ -638,7 +630,10 @@ struct CommsInterface {
         self->_waypointMission.flightPathMode = DJIWaypointMissionFlightPathNormal;
     }
 }
-
+// This should be in a separate queue
+// This code was copied from the DJI sample code, where they likely had on a separate queue
+// Evidence for this separate queue is the dispatch_get_main_queue
+// That function should be unnecessary here
 - (DJIWaypointMissionOperator *)missionOperator {
     return [DJISDKManager missionControl].waypointMissionOperator;
 }

@@ -11,9 +11,6 @@
 #import "VideoPreviewerSDKAdapter.h"
 
 
-struct CommsInterface;
-
-
 
 
 #define WeakRef(__obj) __weak typeof(self) __obj = self
@@ -69,35 +66,7 @@ struct extendedTelemetrySkeleton{
 
     struct coreTelemetrySkeleton _coreTelemetry;
     struct extendedTelemetrySkeleton _extendedTelemetry;
-    /*
-    UInt8 _isFlying;
-    double _latitude;
-    double _longitude;
-    double _altitude;
-    double _HAG;
-    float _velocity_n;
-    float _velocity_e;
-    float _velocity_d;
-    double _yaw;
-    double _pitch;
-    double _roll;
-    */
-    // Extended Telemetry
-    /*
-    UInt16 _GNSSSatCount;
-    int8_t _GNSSSignal;
-    UInt8 _max_height;
-    UInt8 _max_dist;
-    UInt8 _bat_level;
-    UInt8 _bat_level_one;
-    UInt8 _bat_level_two;
-    UInt8 _bat_warning;
-    int8_t _wind_level;
-    UInt8 _dji_cam;
-    UInt8 _flight_mode;
-    UInt16 _mission_id;
-    NSString *_drone_serial;
-    */
+
     // Video
     CVPixelBufferRef *_pixelBuffer;
     
@@ -146,8 +115,6 @@ struct extendedTelemetrySkeleton{
 @property (nonatomic)dispatch_queue_t readPacketQueue;
 @property (nonatomic)dispatch_queue_t lQueue;
 
-
-- (void) _sendPacket:(struct CommsInterface *)comms;
 
 @end
 
