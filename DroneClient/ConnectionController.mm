@@ -3,31 +3,74 @@
 //  DroneClient
 //
 //  Created by Ben Choi on 2/24/21.
-//
+//  Threading added by Elaina Chai 7/22/21
+
+// ECHAI Refactoring Notes:
+// ConnectionController.mm is called by the app when "connect" is hit in the UI
+// Everything in this function will default to the main thread. This is Bad
+// As a rule: the only things that should be in the main thread are:
+//    - UI. This is a requirement by Apple/iOS. This includes updates to iOS app text
+//    - Event handling for critical packets such as emergency handling
+//    - Starting and tracking queues
+// Otherwise, the main thread should be as light weight as possible
+
+// What needs to be in it's own thread, and probably it's own file
+// - Packet sending
+// - Packet receiving: for emergencing stopping, kick event to main thread
+// - Image Processing
+// - Logging
+
+// Own file:
+// - Inputstream and output stream generation
+// - WaypointMission and virtualstick commands
+
+// Still having some deserialization issues when controller update function
+// tries to send BOTH Core and Extended Telemetry
+// Will probably have more more packet dropping issues when we also start sending images
+// Consider multiple output streams:
+// 1) For Core Telemetry
+// 2) For Imagery
+// 3) For all slower stuff like extended telemetry, messages
+// Put them on different ports?
 
 #import "ConnectionController.h"
 #import "DJIUtils.h"
 #import "Constants.h"
 #import "DroneComms.hpp"
-#import "VideoPreviewerSDKAdapter.h"
+//#import "VideoPreviewerSDKAdapter.h"
+#import "ConnectionPacketComms.h"
 #import "ImageUtils.h"
-#import "Image.hpp"
-#import "Drone.hpp"
+//#import "Image.hpp"
+//#import "Drone.hpp"
 
 #import <DJISDK/DJILightbridgeAntennaRSSI.h>
 #import <DJISDK/DJILightbridgeLink.h>
 
-@interface ConnectionController ()<DJISDKManagerDelegate, DJICameraDelegate, DJIBatteryDelegate, DJIBatteryAggregationDelegate, DJIFlightControllerDelegate, NSStreamDelegate, DJIVideoFeedListener, VideoFrameProcessor>
+struct CommsInterface {
+    DroneInterface::Packet packet;
+};
+
+@interface ConnectionController ()
 
 @end
 
 @implementation ConnectionController
+
 
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
     [self registerApp];
     [self configureConnectionToProduct];
+    
+    //ECHAI: Seems like an init function is not ever called
+    // But this function is always called. Therefore, I will start my threads here.
+    self.writePacketQueue = dispatch_queue_create("com.recon.packet.duplex.write", NULL);
+    self.readPacketQueue = dispatch_queue_create("com.recon.packet.duplex.read", NULL);
+    self.lQueue = dispatch_queue_create("com.example.logging", NULL);
+    
+    self->_coreTelemetry = {0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    self->_extendedTelemetry = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, @"00000"};
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -46,155 +89,24 @@
     [self connectToServer];
 }
 
-#pragma mark TCP Connection
 
-- (void) sendPacket:(DroneInterface::Packet *)packet {
-    NSData *data = [[NSData alloc] initWithBytesNoCopy:packet->m_data.data() length:packet->m_data.size() freeWhenDone:false];
-    const unsigned char *bytes= (const unsigned char *)(data.bytes);
-    
-    unsigned int bytes_written = 0;
-    [_socket_lock lock];
-    while (bytes_written != packet->m_data.size()) {
-        int remaining = data.length - bytes_written;
-        const unsigned char *bytesNew = bytes + bytes_written;
-        bytes_written += [outputStream write:bytesNew maxLength:remaining];
-        
-        [NSThread sleepForTimeInterval: 0.001];
-    }
-    [_socket_lock unlock];
-}
 
-- (void) sendPacket_CoreTelemetry {
-    DroneInterface::Packet_CoreTelemetry packet_core;
-    DroneInterface::Packet packet;
-    
-    packet_core.IsFlying = self->_isFlying;
-    packet_core.Latitude = self->_latitude;
-    packet_core.Longitude = self->_longitude;
-    packet_core.Altitude = self->_altitude;
-    packet_core.HAG = self->_HAG;
-    packet_core.V_N = self->_velocity_n;
-    packet_core.V_N = self->_velocity_e;
-    packet_core.V_D = self->_velocity_d;
-    packet_core.Yaw = self->_yaw;
-    packet_core.Pitch = self->_pitch;
-    packet_core.Roll = self->_roll;
-    
-    packet_core.Serialize(packet);
-    
-    [self sendPacket:&packet];
-}
 
-- (void) sendPacket_ExtendedTelemetry {
-    DroneInterface::Packet_ExtendedTelemetry packet_extended;
-    DroneInterface::Packet packet;
-    
-    packet_extended.GNSSSatCount = self->_GNSSSatCount;
-    packet_extended.GNSSSignal = self->_GNSSSignal;
-    packet_extended.MaxHeight =self->_max_height;
-    packet_extended.MaxDist = self->_max_dist;
-    packet_extended.BatLevel = self->_bat_level;
-    packet_extended.BatWarning = self->_bat_warning;
-    packet_extended.WindLevel = self->_wind_level;
-    packet_extended.DJICam = self->_dji_cam;
-    packet_extended.FlightMode = self->_flight_mode;
-    packet_extended.MissionID = self->_mission_id;
-    packet_extended.DroneSerial = std::string([self->_drone_serial UTF8String]);
-    
-    packet_extended.Serialize(packet);
-    
-    [self sendPacket:&packet];
-}
 
-- (void) sendPacket_Image {
-    DroneInterface::Packet_Image packet_image;
-    DroneInterface::Packet packet;
-    
-//    Uncomment below to show frame being sent in packet.
-//    [self showCurrentFrameImage];
-    
-    CVPixelBufferRef pixelBuffer;
-    if (self->_currentPixelBuffer) {
-        pixelBuffer = self->_currentPixelBuffer;
-        UIImage* image = [self imageFromPixelBuffer:pixelBuffer];
-        packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
-        unsigned char *bitmap = [ImageUtils convertUIImageToBitmapRGBA8:image];
-        packet_image.Frame = new Image(bitmap, image.size.height, image.size.width, 4);
-    }
-    
-    packet_image.Serialize(packet);
-    
-    [self sendPacket:&packet];
-}
-
-- (void) sendPacket_Acknowledgment:(BOOL) positive withPID:(UInt8)source_pid {
-    DroneInterface::Packet_Acknowledgment packet_acknowledgment;
-    DroneInterface::Packet packet;
-    
-    packet_acknowledgment.Positive = positive ? 1 : 0;
-    packet_acknowledgment.SourcePID = source_pid;
-    
-    packet_acknowledgment.Serialize(packet);
-    
-    [self sendPacket:&packet];
-}
-
-- (void) sendPacket_MessageString:(NSString*)msg ofType:(UInt8)type {
-    
-    DroneInterface::Packet_MessageString packet_msg;
-    DroneInterface::Packet packet;
-    
-    packet_msg.Type = type;
-    packet_msg.Message = std::string([msg UTF8String]);
-    
-    packet_msg.Serialize(packet);
-    
-    [self sendPacket: &packet];
-}
-
-// TODO: Create real standard to send this data
-// instead of sending as a string (proof of concept and sample
-// use of API, maybe this information should be added to an
-// existing telemetry packet, or get a packet of its own
-- (void) sendPacket_RSSI {
-    DroneInterface::Packet_MessageString packet_msg;
-    DroneInterface::Packet packet;
-    
-    packet_msg.Type = 2;
-    
-    DJILightbridgeAntennaRSSI *rssi;
-    DJILightbridgeLink *link;
-    
-    int a1 = [rssi antenna1];
-    int a2 = [rssi antenna2];
-    NSString *msg = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
-    NSLog(@"%@", msg);
-    
-    
-//    DJILightbridgeDataRate *rate;
-//    NSError *completion;
-//    [link getDataRateWithCompletion:(rate, completion];
-//
-//    NSString *msg2 = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
-
-    
-    packet_msg.Message = std::string([msg UTF8String]);
-
-    packet_msg.Serialize(packet);
-
-    [self sendPacket: &packet];
-}
 
 // Executes when SEND DEBUG COMMAND button is pressed
 - (IBAction)sendDebugMessage:(id)sender {
-//    [self sendPacket_CoreTelemetry];
-//    [self sendPacket_ExtendedTelemetry];
-//    [self sendPacket_Image];
-//    [self sendPacket_Acknowledgment:YES withPID:4];
-    [self sendPacket_RSSI];
-    [self sendPacket_MessageString:TEST_MESSAGE ofType: 2];
+    //[self sendPacket_CoreTelemetry];
+    [ConnectionPacketComms sendPacket_CoreTelemetryThread:self->_coreTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
+    _status3Label.text = [NSString stringWithFormat:@"Yaw: %.4f",self->_coreTelemetry._yaw];
+
+    //[ConnectionPacketComms sendPacket_ExtendedTelemetryThread:self->_extendedTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
+    [ConnectionPacketComms sendPacket_MessageStringThread:TEST_MESSAGE ofType: 2 toQueue:self.writePacketQueue toStream:outputStream];
 }
 
+
+// ECHAI: I think the threading for these need to be per case
+// For example, obviously case 255 for Emergency Command needs to be on the main queue
 - (void) dataReceivedHandler:(uint8_t *)buffer bufferSize: (uint32_t) size withPacket: (DroneInterface::Packet*) packet_fragment {
     
     unsigned int i = 0;
@@ -207,10 +119,11 @@
         packet_fragment->GetPID(PID);
         switch(PID) {
             case 255U: {
+                // ECHAI: Keep in main thread for now
                 DroneInterface::Packet_EmergencyCommand* packet_ec = new DroneInterface::Packet_EmergencyCommand();
                 if (packet_ec->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Emergency Command packet.");
-                    [self sendPacket_Acknowledgment:1 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                     
                     [self stopDJIWaypointMission];
                     
@@ -225,25 +138,26 @@
                     }
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Emergency Command packet.");
-                    [self sendPacket_Acknowledgment:0 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                 }
                 break;
             }
             case 254U: {
+                // ECHAI: Keep in main thread for now
                 DroneInterface::Packet_CameraControl* packet_cc = new DroneInterface::Packet_CameraControl();
                 if (packet_cc->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Camera Control packet.");
-                    [self sendPacket_Acknowledgment:1 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                     
                     if (packet_cc->Action == 0) { // stop live feed
-                        self->_dji_cam = 1;
+                        self->_extendedTelemetry._dji_cam = 1;
                     } else if (packet_cc->Action == 1) { // start live feed
-                        self->_dji_cam = 2;
+                        self->_extendedTelemetry._dji_cam = 2;
                         self->_target_fps = packet_cc->TargetFPS;
                     }
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Camera Control packet.");
-                    [self sendPacket_Acknowledgment:0 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                 }
                 break;
             }
@@ -251,17 +165,18 @@
                 DroneInterface::Packet_ExecuteWaypointMission* packet_ewm = new DroneInterface::Packet_ExecuteWaypointMission();
                 if (packet_ewm->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Execute Waypoint Mission packet.");
-                    [self sendPacket_Acknowledgment:1 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                     
                     struct DroneInterface::WaypointMission* mission;
                     mission->LandAtLastWaypoint = packet_ewm->LandAtEnd;
                     mission->CurvedTrajectory = packet_ewm->CurvedFlight;
                     mission->Waypoints = packet_ewm->Waypoints;
                     
+                    // ECHAI: This can probably be in it's own thread
                     [self executeDJIWaypointMission:mission];
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Execute Waypoint Mission packet.");
-                    [self sendPacket_Acknowledgment:0 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                 }
                 break;
             }
@@ -269,10 +184,11 @@
                 DroneInterface::Packet_VirtualStickCommand* packet_vsc = new DroneInterface::Packet_VirtualStickCommand();
                 if (packet_vsc->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Virtual Stick Command packet.");
-                    [self sendPacket_Acknowledgment:1 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                     
                     [self stopDJIWaypointMission];
-                    
+                    // ECHAI: These can probably be in their own thread
+                    // ECHAI: Probably clear out Waypoint mission thread
                     if (packet_vsc->Mode == 0) {
                         struct DroneInterface::VirtualStickCommand_ModeA* command;
                         command->Yaw = packet_vsc->Yaw;
@@ -294,7 +210,7 @@
                     self->_time_of_last_virtual_stick_command = [NSDate date];
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Virtual Stick Command packet.");
-                    [self sendPacket_Acknowledgment:0 withPID:PID];
+                    [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                 }
                 break;
             }
@@ -374,16 +290,31 @@
     NSLog(@"Opening streams.");
 
     outputStream = (__bridge NSOutputStream *)writeStream;
-    inputStream = (__bridge NSInputStream *)readStream;
-
     [outputStream setDelegate:self];
-    [inputStream setDelegate:self];
-
+    
     [outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-    [inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-
     [outputStream open];
+    
+    inputStream = (__bridge NSInputStream *)readStream;
+    [inputStream setDelegate:self];
+    [inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
     [inputStream open];
+    
+     //id<NSStreamDelegate> streamDelegate = self;//object that conforms to the protocol
+    /*
+    WeakRef(target);
+     [NSThread detachNewThreadWithBlock:^(void){
+         WeakReturn(target);
+         [target->outputStream setDelegate:target];
+         //NSOutputStream *outputStream;
+         //[ouputStream setDelegate:streamDelegate];
+         // define your stream here
+         [target->outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop]
+                    forMode:NSDefaultRunLoopMode];
+         [target->outputStream open];
+     }];
+     */
+     
 }
 
 - (void)close {
@@ -414,31 +345,11 @@
     [[DJIVideoPreviewer instance] registFrameProcessor:self];
     [[DJIVideoPreviewer instance] setEnableHardwareDecode:true];
     self->_frame_count = 0;
-    self->_dji_cam = 2;
+    self->_extendedTelemetry._dji_cam = 2;
     self->_target_fps = 30;
     self->_time_of_last_virtual_stick_command = [NSDate date];
 }
-
-- (void) videoProcessFrame:(VideoFrameYUV *)frame {
-    if (frame->cv_pixelbuffer_fastupload != nil) {
-        if (self->_dji_cam == 2 && (self->_frame_count % ((int) self->_target_fps) == 0)) {
-            CVPixelBufferRef pixelBuffer = (CVPixelBufferRef) frame->cv_pixelbuffer_fastupload;
-            if (self->_currentPixelBuffer) {
-                CVPixelBufferRelease(self->_currentPixelBuffer);
-            }
-            self->_currentPixelBuffer = pixelBuffer;
-            CVPixelBufferRetain(pixelBuffer);
-            
-            self->_frame_count = 1;
-            
-            [self sendPacket_MessageString:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1]; // for checking frame timing
-            [self sendPacket_Image];
-        }
-        self->_frame_count++;
-    } else {
-        self->_currentPixelBuffer = nil;
-    }
-}
+// ECHAI: This should be in its own thread
 
 - (BOOL)videoProcessorEnabled {
     return YES;
@@ -495,7 +406,7 @@
         }
         
         [flightController getSerialNumberWithCompletion:^(NSString * serialNumber, NSError * error) {
-            self->_drone_serial = serialNumber;
+            self->_extendedTelemetry._drone_serial = serialNumber;
         }];
         
         [flightController setVirtualStickModeEnabled:TRUE
@@ -567,56 +478,58 @@
                                                  withListener: self
                                                andUpdateBlock: ^(DJIKeyedValue * _Nullable oldKeyedValue, DJIKeyedValue * _Nullable newKeyedValue) {
                                                 if (newKeyedValue) {
-                                                    self->_bat_level_one = [newKeyedValue.value intValue];
-                                                    self->_bat_level = (self->_bat_level_one + self->_bat_level_two) / 2;
+                                                    self->_extendedTelemetry._bat_level_one = [newKeyedValue.value intValue];
+                                                    self->_extendedTelemetry._bat_level = (self->_extendedTelemetry._bat_level_one + self->_extendedTelemetry._bat_level_two) / 2;
                                                 }
                                             }];
     [[DJISDKManager keyManager] startListeningForChangesOnKey: batteryTwoKey
                                                  withListener: self
                                                andUpdateBlock: ^(DJIKeyedValue * _Nullable oldKeyedValue, DJIKeyedValue * _Nullable newKeyedValue) {
                                                 if (newKeyedValue) {
-                                                    self->_bat_level_two = [newKeyedValue.value intValue];
-                                                    self->_bat_level = (self->_bat_level_one + self->_bat_level_two) / 2;
+                                                    self->_extendedTelemetry._bat_level_two = [newKeyedValue.value intValue];
+                                                    self->_extendedTelemetry._bat_level = (self->_extendedTelemetry._bat_level_one + self->_extendedTelemetry._bat_level_two) / 2;
                                                 }
                                             }];
 }
 
 #pragma mark - DJIFlightControllerDelegate
-
+// How often is this getting called?
+// If this gets called too frequently, faster than sleep interval for CoreTelemetry
+// The thread locks up and we are going to have PROBLEMS with clogged thread
 - (void)flightController:(DJIFlightController *)fc didUpdateState:(DJIFlightControllerState *)state
 {
-    self->_GNSSSignal = [DJIUtils getGNSSSignal:[state GPSSignalLevel]];
+    self->_extendedTelemetry._GNSSSignal = [DJIUtils getGNSSSignal:[state GPSSignalLevel]];
     if([DJIUtils gpsStatusIsGood:[state GPSSignalLevel]])
     {
-        self->_latitude = state.aircraftLocation.coordinate.latitude;
-        self->_longitude = state.aircraftLocation.coordinate.longitude;
-        self->_HAG = state.aircraftLocation.altitude;
-        self->_altitude = state.takeoffLocationAltitude + self->_HAG;
+        self->_coreTelemetry._latitude = state.aircraftLocation.coordinate.latitude;
+        self->_coreTelemetry._longitude = state.aircraftLocation.coordinate.longitude;
+        self->_coreTelemetry._HAG = state.aircraftLocation.altitude;
+        self->_coreTelemetry._altitude = state.takeoffLocationAltitude + self->_coreTelemetry._HAG;
         
     }
     
-    self->_isFlying = state.isFlying ? 1 : 0;
-    self->_velocity_n = state.velocityX;
-    self->_velocity_e = state.velocityY;
-    self->_velocity_d = state.velocityZ;
-    self->_yaw = state.attitude.yaw;
-    self->_pitch = state.attitude.pitch;
-    self->_roll = state.attitude.roll;
+    self->_coreTelemetry._isFlying = state.isFlying ? 1 : 0;
+    self->_coreTelemetry._velocity_n = state.velocityX;
+    self->_coreTelemetry._velocity_e = state.velocityY;
+    self->_coreTelemetry._velocity_d = state.velocityZ;
+    self->_coreTelemetry._yaw = state.attitude.yaw;
+    self->_coreTelemetry._pitch = state.attitude.pitch;
+    self->_coreTelemetry._roll = state.attitude.roll;
     
-    self->_GNSSSatCount = state.satelliteCount;
-    self->_max_height = state.hasReachedMaxFlightHeight ? 1 : 0;
-    self->_max_dist = state.hasReachedMaxFlightRadius ? 1 : 0;
+    self->_extendedTelemetry._GNSSSatCount = state.satelliteCount;
+    self->_extendedTelemetry._max_height = state.hasReachedMaxFlightHeight ? 1 : 0;
+    self->_extendedTelemetry._max_dist = state.hasReachedMaxFlightRadius ? 1 : 0;
     if (state.isLowerThanSeriousBatteryWarningThreshold) {
-        self->_bat_warning = 2;
+        self->_extendedTelemetry._bat_warning = 2;
     } else {
         if (state.isLowerThanBatteryWarningThreshold) {
-            self->_bat_warning = 1;
+            self->_extendedTelemetry._bat_warning = 1;
         } else {
-            self->_bat_warning = 0;
+            self->_extendedTelemetry._bat_warning = 0;
         }
     }
-    self->_wind_level = [DJIUtils getWindLevel:[state windWarning]];
-    self->_flight_mode = [DJIUtils getFlightMode:[state flightMode]];
+    self->_extendedTelemetry._wind_level = [DJIUtils getWindLevel:[state windWarning]];
+    self->_extendedTelemetry._flight_mode = [DJIUtils getFlightMode:[state flightMode]];
 
 //  KNOWN BUG: Behavior leading to _dji_cam = 0 is currently undefined.
 //    if (!self->_camera.isConnected) {
@@ -626,7 +539,7 @@
 //            self ->_dji_cam = 2;
 //        }
 //    }
-    self->_mission_id = 0;
+    self->_extendedTelemetry._mission_id = 0;
     
     double time_since_last_virtual_stick_command = [self->_time_of_last_virtual_stick_command timeIntervalSinceNow];
     if (time_since_last_virtual_stick_command > self->_virtual_stick_command_timeout) {
@@ -637,11 +550,12 @@
     }
     
 //  KNOWN BUG: Different delay values or slow connections may lead to errors in server-side deserialization
-    [self sendPacket_CoreTelemetry];
-    [self sendPacket_RSSI];
-    [NSThread sleepForTimeInterval: 0.5];
-    [self sendPacket_ExtendedTelemetry];
-    [NSThread sleepForTimeInterval: 0.5];
+    [ConnectionPacketComms sendPacket_CoreTelemetryThread:self->_coreTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
+    //[self sendPacket_CoreTelemetry];
+    //[self sendPacket_RSSI];
+    //[NSThread sleepForTimeInterval: 0.5];
+    [ConnectionPacketComms sendPacket_ExtendedTelemetryThread:self->_extendedTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
+    //[NSThread sleepForTimeInterval: 0.5];
 }
 
 - (void) executeVirtualStickCommand_ModeA: (DroneInterface::VirtualStickCommand_ModeA *) command {
@@ -708,7 +622,7 @@
             }
             [self->_waypointMission addWaypoint:waypoint];
         } else {
-            [self sendPacket_MessageString:@"Invalid waypoint coordinate." ofType:3];
+            [ConnectionPacketComms sendPacket_MessageStringThread:@"Invalid waypoint coordinate." ofType:3 toQueue:self.writePacketQueue toStream:outputStream];
         }
     }
     
@@ -756,5 +670,112 @@
 
     }];
 }
+///////// ECHAI: Here are the functions to be moved out of ConnectionController
+#pragma mark TCP Connection
+// No assignments to self
+// ECHAI: Goal is to get all of these functions into its own file
 
+- (void) sendPacket:(DroneInterface::Packet *)packet {
+    NSData *data = [[NSData alloc] initWithBytesNoCopy:packet->m_data.data() length:packet->m_data.size() freeWhenDone:false];
+    const unsigned char *bytes= (const unsigned char *)(data.bytes);
+    
+    unsigned int bytes_written = 0;
+
+    while (bytes_written != packet->m_data.size()) {
+        int remaining = (int)data.length - bytes_written;
+        const unsigned char *bytesNew = bytes + bytes_written;
+        // Tried to setup outputStream in new thread outside of main
+        // Couldn't figure out how to call it from this function if this function exists outside connectioncontroller
+        bytes_written += [outputStream write:bytesNew maxLength:remaining];
+        
+        
+    }
+    [NSThread sleepForTimeInterval: 0.001];
+}
+
+// TODO: Create real standard to send this data
+// instead of sending as a string (proof of concept and sample
+// use of API, maybe this information should be added to an
+// existing telemetry packet, or get a packet of its own
+// ECHAI: Thread verified? What's the point of this packet?
+- (void) sendPacket_RSSI {
+    DroneInterface::Packet_MessageString packet_msg;
+    DroneInterface::Packet packet;
+    
+    packet_msg.Type = 2;
+    
+    DJILightbridgeAntennaRSSI *rssi;
+    DJILightbridgeLink *link;
+    
+    int a1 = [rssi antenna1];
+    int a2 = [rssi antenna2];
+    NSString *msg = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
+    NSLog(@"%@", msg);
+    
+    
+//    DJILightbridgeDataRate *rate;
+//    NSError *completion;
+//    [link getDataRateWithCompletion:(rate, completion];
+//
+//    NSString *msg2 = [NSString stringWithFormat:@"antenna1: %d   antenna2: %d", a1, a2];
+
+    
+    packet_msg.Message = std::string([msg UTF8String]);
+
+    packet_msg.Serialize(packet);
+
+    [self sendPacket: &packet];
+}
+// ECHAI: Thread verified?
+- (void) sendPacket_Image {
+    WeakRef(target);
+    dispatch_async(self.writePacketQueue, ^{
+        WeakReturn(target);
+        DroneInterface::Packet_Image packet_image;
+        DroneInterface::Packet packet;
+        
+    //    Uncomment below to show frame being sent in packet.
+    //    [self showCurrentFrameImage];
+        
+        CVPixelBufferRef pixelBuffer;
+        if (self->_currentPixelBuffer) {
+            pixelBuffer = self->_currentPixelBuffer;
+            UIImage* image = [self imageFromPixelBuffer:pixelBuffer];
+            packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
+            unsigned char *bitmap = [ImageUtils convertUIImageToBitmapRGBA8:image];
+            packet_image.Frame = new Image(bitmap, image.size.height, image.size.width, 4);
+        }
+        
+        packet_image.Serialize(packet);
+        
+        [target sendPacket:&packet];
+        //[self _sendPacket:&packet toStream:outputStream];
+    });
+}
+
+////////////////////
+- (void) videoProcessFrame:(VideoFrameYUV *)frame {
+    if (frame->cv_pixelbuffer_fastupload != nil) {
+        if (self->_extendedTelemetry._dji_cam == 2 && (self->_frame_count % ((int) self->_target_fps) == 0)) {
+            CVPixelBufferRef pixelBuffer = (CVPixelBufferRef) frame->cv_pixelbuffer_fastupload;
+            if (self->_currentPixelBuffer) {
+                CVPixelBufferRelease(self->_currentPixelBuffer);
+            }
+            self->_currentPixelBuffer = pixelBuffer;
+            CVPixelBufferRetain(pixelBuffer);
+            
+            self->_frame_count = 1;
+            
+            [ConnectionPacketComms sendPacket_MessageStringThread:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1 toQueue:self.writePacketQueue toStream:outputStream]; // for checking frame timing
+            [self sendPacket_Image];
+        }
+        self->_frame_count++;
+    } else {
+        self->_currentPixelBuffer = nil;
+    }
+}
+
+////////////////////
 @end
+
+
