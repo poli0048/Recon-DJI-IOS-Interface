@@ -19,7 +19,7 @@
 struct CommsInterface {
     DroneInterface::Packet packet;
 };
-
+#pragma mark TCP Connection
 + (void) _sendPacket:(DroneInterface::Packet *)packet toStream:( NSOutputStream *)outputStream{
     NSData *data = [[NSData alloc] initWithBytesNoCopy:packet->m_data.data() length:packet->m_data.size() freeWhenDone:false];
     const unsigned char *bytes= (const unsigned char *)(data.bytes);
@@ -32,8 +32,6 @@ struct CommsInterface {
         // Tried to setup outputStream in new thread outside of main
         // Couldn't figure out how to call it from this function if this function exists outside connectioncontroller
         bytes_written += [outputStream write:bytesNew maxLength:remaining];
-        
-        
     }
     [NSThread sleepForTimeInterval: 0.001];
 }
@@ -104,11 +102,10 @@ struct CommsInterface {
     });
 }
 // ECHAI: Thread verified?
-/*
-+ (void) sendPacket_ImageThread {(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream
-    WeakRef(target);
-    dispatch_async(self.writePacketQueue, ^{
-        WeakReturn(target);
+
+ //currentPixelBuffer cannot be a null pointer
++ (void) sendPacket_ImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream{
+    dispatch_async(targetQueue, ^{
         DroneInterface::Packet_Image packet_image;
         DroneInterface::Packet packet;
         
@@ -116,20 +113,19 @@ struct CommsInterface {
     //    [self showCurrentFrameImage];
         
         CVPixelBufferRef pixelBuffer;
-        if (self->_currentPixelBuffer) {
-            pixelBuffer = self->_currentPixelBuffer;
-            UIImage* image = [self imageFromPixelBuffer:pixelBuffer];
-            packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
-            unsigned char *bitmap = [ImageUtils convertUIImageToBitmapRGBA8:image];
-            packet_image.Frame = new Image(bitmap, image.size.height, image.size.width, 4);
-        }
+        pixelBuffer = *currentPixelBuffer;
+        UIImage* image = [ImageUtils imageFromPixelBuffer:pixelBuffer];
+        packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
+        unsigned char *bitmap = [ImageUtils convertUIImageToBitmapRGBA8:image];
+        packet_image.Frame = new Image(bitmap, image.size.height, image.size.width, 4);
+        
         
         packet_image.Serialize(packet);
         
-        [target sendPacket:&packet];
+        [self _sendPacket:&packet toStream:writeStream];
     });
 }
-*/
+
 
 + (void) sendPacket_MessageStringThread:(NSString*)msg ofType:(UInt8)type toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream{
     dispatch_async(targetQueue, ^{

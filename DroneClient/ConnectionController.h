@@ -15,7 +15,7 @@
 
 #define WeakRef(__obj) __weak typeof(self) __obj = self
 #define WeakReturn(__obj) if(__obj ==nil)return;
-#define ENABLE_DEBUG_MODE 0
+#define ENABLE_DEBUG_MODE 1
 
 NS_ASSUME_NONNULL_BEGIN
 struct coreTelemetrySkeleton{
@@ -61,7 +61,7 @@ struct extendedTelemetrySkeleton{
     NSMutableArray  *messages;
     
     int needToSetMode;
-    
+    int _missionDisplayCounter;
     // Core Telemetry
 
     struct coreTelemetrySkeleton _coreTelemetry;
