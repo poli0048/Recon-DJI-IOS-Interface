@@ -5,20 +5,19 @@
 //  Created by EE User on 7/24/21.
 //
 
+// Because of opencv, DroneComms must come before any Apple headers
+#import "DroneComms.hpp"
 
 #import "ConnectionPacketComms.h"
 #import "ConnectionController.h"
 #import "DJIUtils.h"
 #import "Constants.h"
-#import "DroneComms.hpp"
+
 #import "ImageUtils.h"
 #import "Image.hpp"
 #import "Drone.hpp"
 @implementation ConnectionPacketComms : NSObject 
 
-struct CommsInterface {
-    DroneInterface::Packet packet;
-};
 #pragma mark TCP Connection
 + (void) _sendPacket:(DroneInterface::Packet *)packet toStream:( NSOutputStream *)outputStream{
     NSData *data = [[NSData alloc] initWithBytesNoCopy:packet->m_data.data() length:packet->m_data.size() freeWhenDone:false];
@@ -103,8 +102,86 @@ struct CommsInterface {
 }
 // ECHAI: Thread verified?
 
++ (cv::Mat) cvMatFromUIImage:(UIImage *)image
+{
+  CGColorSpaceRef colorSpace = CGImageGetColorSpace(image.CGImage);
+  CGFloat cols = image.size.width;
+  CGFloat rows = image.size.height;
+  cv::Mat cvMat(rows, cols, CV_8UC4); // 8 bits per component, 4 channels (color channels + alpha)
+  CGContextRef contextRef = CGBitmapContextCreate(cvMat.data,                 // Pointer to  data
+                                                 cols,                       // Width of bitmap
+                                                 rows,                       // Height of bitmap
+                                                 8,                          // Bits per component
+                                                 cvMat.step[0],              // Bytes per row
+                                                 colorSpace,                 // Colorspace
+                                                 kCGImageAlphaNoneSkipLast |
+                                                 kCGBitmapByteOrderDefault); // Bitmap info flags
+  CGContextDrawImage(contextRef, CGRectMake(0, 0, cols, rows), image.CGImage);
+  CGContextRelease(contextRef);
+  cv::cvtColor(cvMat , cvMat , cv::COLOR_RGBA2BGR); // convert CV_8UC4 to CV_8UC3
+
+  return cvMat;
+}
+
+//currentPixelBuffer cannot be a null pointer
++ (void) sendPacket_JpegImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toImageQueue:(dispatch_queue_t) imageQueue toStream:( NSOutputStream *)writeStream
+{
+   __block DroneInterface::Packet_CompressedImage packet_image;
+   __block DroneInterface::Packet packet;
+   dispatch_sync(imageQueue, ^{
+
+       CVPixelBufferRef pixelBuffer;
+       pixelBuffer = *currentPixelBuffer;
+       UIImage* image = [ImageUtils imageFromPixelBuffer:pixelBuffer];
+       packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
+       
+       //cv::Mat mat = [UIImage toCvMat:image];
+       packet_image.Frame =  [self cvMatFromUIImage:image];
+        
+   });
+   
+   dispatch_async(targetQueue, ^{
+       packet_image.Serialize(packet);
+       
+       [self _sendPacket:&packet toStream:writeStream];
+   });
+}
+
  //currentPixelBuffer cannot be a null pointer
-+ (void) sendPacket_ImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream{
++ (void) sendPacket_ImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toImageQueue:(dispatch_queue_t) imageQueue toStream:( NSOutputStream *)writeStream
+{
+    __block DroneInterface::Packet_Image packet_image;
+    //__block DroneInterface::Packet_CompressedImage packet_image;
+    __block DroneInterface::Packet packet;
+    dispatch_sync(imageQueue, ^{
+
+        
+         // ECHAI: For uncompressed Image
+        CVPixelBufferRef pixelBuffer;
+        pixelBuffer = *currentPixelBuffer;
+        UIImage* image = [ImageUtils imageFromPixelBuffer:pixelBuffer];
+        packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
+        unsigned char *bitmap = [ImageUtils convertUIImageToBitmapRGBA8:image];
+        packet_image.Frame = new Image(bitmap, image.size.height, image.size.width, 4);
+         
+        /*
+        CVPixelBufferRef pixelBuffer;
+        pixelBuffer = *currentPixelBuffer;
+        UIImage* image = [ImageUtils imageFromPixelBuffer:pixelBuffer];
+        packet_image.TargetFPS = [DJIVideoPreviewer instance].currentStreamInfo.frameRate;
+        
+        //cv::Mat mat = [UIImage toCvMat:image];
+        packet_image.Frame =  [self cvMatFromUIImage:image];
+         */
+    });
+    
+    dispatch_async(targetQueue, ^{
+        packet_image.Serialize(packet);
+        
+        [self _sendPacket:&packet toStream:writeStream];
+    });
+    
+    /*
     dispatch_async(targetQueue, ^{
         DroneInterface::Packet_Image packet_image;
         DroneInterface::Packet packet;
@@ -124,6 +201,7 @@ struct CommsInterface {
         
         [self _sendPacket:&packet toStream:writeStream];
     });
+     */
 }
 
 

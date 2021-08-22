@@ -113,6 +113,7 @@ struct extendedTelemetrySkeleton{
 
 @property (nonatomic)dispatch_queue_t writePacketQueue;
 @property (nonatomic)dispatch_queue_t readPacketQueue;
+@property (nonatomic)dispatch_queue_t imageQueue;
 @property (nonatomic)dispatch_queue_t lQueue;
 
 

@@ -32,13 +32,14 @@
 // 2) For Imagery
 // 3) For all slower stuff like extended telemetry, messages
 // Put them on different ports?
-
+#import "DroneComms.hpp"
 #import "ConnectionController.h"
 #import "DJIUtils.h"
 #import "Constants.h"
-#import "DroneComms.hpp"
+
 //#import "VideoPreviewerSDKAdapter.h"
 #import "ConnectionPacketComms.h"
+#import "ImageProcessor.h"
 #import "ImageUtils.h"
 //#import "Image.hpp"
 //#import "Drone.hpp"
@@ -62,16 +63,20 @@
     [DJISDKManager enableRemoteLoggingWithDeviceID:@"iOS_App" logServerURLString:[NSString stringWithFormat:@"http://%@:4567",ipAddress]];
 
 #endif
+    self->_coreTelemetry = {0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    self->_extendedTelemetry = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, @"00000"};
+    
+    // DJI Cam
     [self configureConnectionToProduct];
     
     //ECHAI: Seems like an init function is not ever called
     // But this function is always called. Therefore, I will start my threads here.
     self.writePacketQueue = dispatch_queue_create("com.recon.packet.duplex.write", NULL);
     self.readPacketQueue = dispatch_queue_create("com.recon.packet.duplex.read", NULL);
+    self.imageQueue = dispatch_queue_create("com.recon.image", NULL);
     self.lQueue = dispatch_queue_create("com.example.logging", NULL);
     
-    self->_coreTelemetry = {0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    self->_extendedTelemetry = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, @"00000"};
+    
     self->_missionDisplayCounter = 0;
     DJILogDebug(@"iOS Client ready.");
 }
@@ -100,36 +105,28 @@
 
     DJILogDebug(@"Sending debug message");
     if ([self missionOperator].loadedMission){
-        //NSMutableArray <DJIWaypointV2 *> *waypoints;
-        DJIWaypoint * currentWaypoint = [[NSMutableArray alloc] initWithArray:self->_waypointMission.allWaypoints][self->_missionDisplayCounter];
-        unsigned int count = self->_waypointMission.waypointCount;
-        // Synchronous dispatch!
-        // Wait until text is updated before incrementing
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self->_status0Label.text = [NSString stringWithFormat:@"Displaying loaded mission"];
-            self->_status1Label.text = [NSString stringWithFormat:@"Waypoint ID: %d",self->_missionDisplayCounter];
-            self->_status4Label.text = [NSString stringWithFormat:@"Latitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.latitude];
-            self->_status5Label.text = [NSString stringWithFormat:@"Longitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.longitude];
-            //6: Altitutde in meters
-           self->_status6Label.text = [NSString stringWithFormat:@"Altitude in meters: %.4f",currentWaypoint.altitude];
-       // 7: Corner Radius in meters
-           self->_status7Label.text = [NSString stringWithFormat:@"Corner Radius in meters: %.4f ",currentWaypoint.cornerRadiusInMeters];
-       // 8: Speed in meters
-           self->_status8Label.text = [NSString stringWithFormat:@"Speed in m/s: %.4f",currentWaypoint.speed];
-       // 9: LoiterTime in milliseconds. This is a waypoint action
-           unsigned long num_actions = [currentWaypoint.waypointActions count];
-           self->_status9Label.text = [NSString stringWithFormat:@"There are waypoint %lu actions!",num_actions];
-            self->_missionDisplayCounter +=1;
-            if (self->_missionDisplayCounter >= count){
-                self->_missionDisplayCounter = 0;
-            }
-        });
-        
+        DJIWaypointMission * inspectMission = [self missionOperator].loadedMission;
+        [self debugWaypointMission:inspectMission];
     }
+    
+
+
+    self->_status0Label.text = @"Updating Telemetry";
+    self->_status1Label.text = [NSString stringWithFormat:@"Latitude %.6f",self->_coreTelemetry._latitude];
+    self->_status2Label.text = [NSString stringWithFormat:@"Longitude: %.6f",self->_coreTelemetry._longitude];
+    self->_status3Label.text = [NSString stringWithFormat:@"HAG: %.6f meters",self->_coreTelemetry._HAG];
+    self->_status4Label.text = [NSString stringWithFormat:@"Altitude: %.6f meters ",self->_coreTelemetry._altitude];
+
+    self->_status5Label.text = [NSString stringWithFormat:@"GNSSSatCount: %d",self->_extendedTelemetry._GNSSSatCount];
+    self->_status6Label.text = [NSString stringWithFormat:@"GNSSSignal: %d",self->_extendedTelemetry._GNSSSignal];
+    self->_status7Label.text = [NSString stringWithFormat:@"WindLevel: %d",self->_extendedTelemetry._wind_level];
+    self->_status8Label.text = [NSString stringWithFormat:@"DJICam: %d ",self->_extendedTelemetry._dji_cam];
+    self->_status9Label.text = [NSString stringWithFormat:@"Flight Mode: %d ",self->_extendedTelemetry._flight_mode];
+        
+    
 
 
 
-    //[ConnectionPacketComms sendPacket_ExtendedTelemetryThread:self->_extendedTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
     [ConnectionPacketComms sendPacket_MessageStringThread:TEST_MESSAGE ofType: 2 toQueue:self.writePacketQueue toStream:outputStream];
 }
 
@@ -152,21 +149,98 @@
                 DroneInterface::Packet_EmergencyCommand* packet_ec = new DroneInterface::Packet_EmergencyCommand();
                 if (packet_ec->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Emergency Command packet.");
+                    DJILogDebug(@"Deserialized Emergency Command Packet %d", packet_ec->Action);
                     [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
+
+                    // no matter what, if flying, must try to stop mission is executing
+                    if (DJIFlightControllerParamIsFlying){
+                        [self stopDJIWaypointMission];
+                    }
                     
-                    [self stopDJIWaypointMission];
-                    
-                    if (packet_ec->Action == 1) {
-                        [[DJIUtils fetchFlightController] startLandingWithCompletion:^(NSError * _Nullable error) {
+                    // From here on, the drone is either hovering or on the ground
+                    if (packet_ec->Action == 0){
+                        // take off if drone is on the ground
+                        if (DJIFlightControllerParamIsFlying){
+                            DJILogDebug(@"Drone is on ground. Will take off to hover");
+                            
+                            // TODO: will fail if motors are on -> must turn off motors to take off
+                            if (DJIFlightControllerParamAreMotorsOn){
+                                [[DJIUtils fetchFlightController] turnOffMotorsWithCompletion:^(NSError * _Nullable error) {
+                                    if (error) {DJILogDebug(@"Motors failed to turn off error: %@", error);
+                                    }
+                                    else{DJILogDebug(@"Motor off command successfully completed!");
+                                    }
+                                }];
+                            }
+                            [[DJIUtils fetchFlightController] startTakeoffWithCompletion:^(NSError * _Nullable error) {
+                                if (error) {
+                                    DJILogDebug(@"Take off error: %@", error);
+                                }
+                                else{
+                                    DJILogDebug(@"Take off command successfully completed!");
+                                }
+                            }];
+                        }
+                    }
+                    else if (packet_ec->Action == 1) {
+                        if (DJIFlightControllerParamIsFlying){
+                            [[DJIUtils fetchFlightController] startLandingWithCompletion:^(NSError * _Nullable error) {
+                                if (error) {
+                                    DJILogDebug(@"Land Now command error: %@", error);
+                                }
+                                else{
+                                    DJILogDebug(@"Landing command successfully completed!");
+                                }
+                            }];
+                        }
+                        else {
+                            DJILogDebug(@"Not flying. Land now emergency packet does nothing.");
+                        }
                         
-                        }];
                     } else if (packet_ec->Action == 2) {
-                        [[DJIUtils fetchFlightController] startGoHomeWithCompletion:^(NSError * _Nullable error) {
+                        // take off if drone is on the ground
                         
+                        if (!DJIFlightControllerParamIsFlying){
+                            DJILogDebug(@"Drone is on ground. Will take off to hover");
+                            // must turn off motors before take off
+                            if ( DJIFlightControllerParamAreMotorsOn){
+                                [[DJIUtils fetchFlightController] turnOffMotorsWithCompletion:^(NSError * _Nullable error) {
+                                    if (error) {DJILogDebug(@"Error turning off motors: %@", error);
+                                    }
+                                    else{DJILogDebug(@"Motor off command successfully completed!");
+                                    }
+                                }];
+                            }
+                            [[DJIUtils fetchFlightController] startTakeoffWithCompletion:^(NSError * _Nullable error) {
+                                if (error) {DJILogDebug(@"Take off error: %@", error);
+                                }
+                                else{
+                                    DJILogDebug(@"Take off command successfully completed!");
+                                }
+                            }];
+                        }
+                        
+                        // drone is hovering. Time to go home
+                        [[DJIUtils fetchFlightController] startGoHomeWithCompletion:^(NSError * _Nullable error) {
+                            if (error) {DJILogDebug(@"Go Home command error: %@", error);}
+                            else{
+                                DJILogDebug(@"Go Home command successfully completed!");
+                            }
                         }];
+                        
+                        // Time to land
+                        [[DJIUtils fetchFlightController] startLandingWithCompletion:^(NSError * _Nullable error) {
+                            if (error) {DJILogDebug(@"Land Now command error: %@", error);
+                            }
+                            else{
+                                DJILogDebug(@"Landing command successfully completed!");
+                            }
+                        }];
+                    
                     }
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Emergency Command packet.");
+                    DJILogDebug(@"Deserialization of emergency command packet failed!");
                     [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
                 }
                 break;
@@ -213,20 +287,28 @@
             }
             case 252U: {
                 DroneInterface::Packet_VirtualStickCommand* packet_vsc = new DroneInterface::Packet_VirtualStickCommand();
+                DJILogDebug(@"About to deserialize packet");
                 if (packet_vsc->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Virtual Stick Command packet.");
+                    DJILogDebug(@"Received Virtual Stick Command");
                     [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
+                    DJILogDebug(@"About to stop Waypoint mission");
                     
                     [self stopDJIWaypointMission];
+                    DJILogDebug(@"Stopped Waypoint mission");
+                    
                     // ECHAI: These can probably be in their own thread
                     // ECHAI: Probably clear out Waypoint mission thread
                     if (packet_vsc->Mode == 0) {
+                        DJILogDebug(@"packet_vsc mode is 0");
                         struct DroneInterface::VirtualStickCommand_ModeA* command = new DroneInterface::VirtualStickCommand_ModeA();
+                        DJILogDebug(@"Created new virtual stick command");
                         command->Yaw = packet_vsc->Yaw;
                         command->V_North = packet_vsc->V_x;
                         command->V_East = packet_vsc->V_y;
                         command->HAG = packet_vsc->HAG;
                         command->timeout = packet_vsc->timeout;
+                        DJILogDebug(@"About to execute Virtual Stick Command");
                         [self executeVirtualStickCommand_ModeA:command];
                         
                     } else if (packet_vsc->Mode == 1) {
@@ -238,8 +320,9 @@
                         command->timeout = packet_vsc->timeout;
                         [self executeVirtualStickCommand_ModeB:command];
                     }
-                    
+                    /*
                     self->_time_of_last_virtual_stick_command = [NSDate date];
+                    */
                 } else {
                     NSLog(@"Error: Tried to deserialize invalid Virtual Stick Command packet.");
                     [ConnectionPacketComms sendPacket_AcknowledgmentThread:0 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
@@ -382,8 +465,12 @@
         DJICamera *camera = [DJIUtils fetchCamera];
         if (camera != nil) {
             camera.delegate = self;
+            DJILogDebug(@"DJI Camera connected!");
         }
-        
+        else{
+            DJILogDebug(@"DJI Camera not connected!");
+        }
+        //[camera setVideoResolutionAndFrameRate:(nonnull DJICameraVideoResolutionAndFrameRate *) DJICameraParam withCompletion:<#^(NSError * _Nullable error)completion#>]
         DJIBattery *battery = [DJIUtils fetchBattery];
         if (battery != nil) {
             battery.delegate = self;
@@ -403,7 +490,6 @@
         [[DJIUtils fetchFlightController] setYawControlMode:DJIVirtualStickYawControlModeAngle];
         
     }
-    
     [self setExtendedTelemetryKeyedParameters];
 }
 
@@ -522,13 +608,15 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     self->_extendedTelemetry._flight_mode = [DJIUtils getFlightMode:[state flightMode]];
     
     //  KNOWN BUG: Behavior leading to _dji_cam = 0 is currently undefined.
-    //    if (!self->_camera.isConnected) {
-    //        self->_dji_cam = 0;
-    //    } else {
-    //        if (self->_dji_cam == 0) {
-    //            self ->_dji_cam = 2;
-    //        }
-    //    }
+    /*
+        if (!self->_camera.isConnected) {
+            self->_dji_cam = 0;
+        } else {
+            if (self->_dji_cam == 0) {
+                self ->_dji_cam = 2;
+            }
+        }
+     */
     self->_extendedTelemetry._mission_id = 0;
     
     double time_since_last_virtual_stick_command = [self->_time_of_last_virtual_stick_command timeIntervalSinceNow];
@@ -560,8 +648,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     
     for (int i = 0; i < mission->Waypoints.size(); i++) {
         CLLocation* location = [[CLLocation alloc] initWithLatitude:mission->Waypoints[i].Latitude longitude:mission->Waypoints[i].Longitude];
-        DJILogDebug(@"Waypoint %d has latitude %.8f", i, mission->Waypoints[i].Latitude);
-        DJILogDebug(@"Waypoint %d has longitude %.8f", i, mission->Waypoints[i].Longitude);
+
         if (CLLocationCoordinate2DIsValid(location.coordinate)) {
             DJIWaypoint* waypoint = [[DJIWaypoint alloc] initWithCoordinate:location.coordinate];
             waypoint.altitude = mission->Waypoints[i].Altitude;
@@ -597,11 +684,30 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 // ECHAI: This should be in its own thread
 // Image related stuff
 // Do not move until I have a testbench set up for testing images
-
+// Tested feed: when camera is running and video feed open, packet updates are MUCH slower
+// This is needs to be in its own thread
 ////////////////////
+/*
 - (void) videoProcessFrame:(VideoFrameYUV *)frame {
     if (frame->cv_pixelbuffer_fastupload != nil) {
         if (self->_extendedTelemetry._dji_cam == 2 && (self->_frame_count % ((int) self->_target_fps) == 0)) {
+            
+
+            self->_frame_count = 1;
+            [ImageProcessor videoProcessFrameInner:frame toFrame:(CVPixelBufferRef*) &self->_currentPixelBuffer writeQueue:self.writePacketQueue imageQueue:self.imageQueue toStream:outputStream];
+            
+        }
+        self->_frame_count++;
+    } else {
+        self->_currentPixelBuffer = nil;
+    }
+}
+ */
+
+- (void) videoProcessFrame:(VideoFrameYUV *)frame {
+    if (frame->cv_pixelbuffer_fastupload != nil) {
+        if (self->_extendedTelemetry._dji_cam == 2 && (self->_frame_count % ((int) self->_target_fps) == 0)) {
+            
             CVPixelBufferRef pixelBuffer = (CVPixelBufferRef) frame->cv_pixelbuffer_fastupload;
             if (self->_currentPixelBuffer) {
                 CVPixelBufferRelease(self->_currentPixelBuffer);
@@ -611,9 +717,10 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
             
             self->_frame_count = 1;
             
-            [ConnectionPacketComms sendPacket_MessageStringThread:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1 toQueue:self.writePacketQueue toStream:outputStream]; // for checking frame timing
+            //[ConnectionPacketComms sendPacket_MessageStringThread:@"VIDEO FRAME WOULD HAVE SENT NOW" ofType:1 toQueue:self.writePacketQueue toStream:outputStream]; // for checking frame timing
             if (self->_currentPixelBuffer) {
-                [ConnectionPacketComms sendPacket_ImageThread: (CVPixelBufferRef*) &self->_currentPixelBuffer toQueue:self.writePacketQueue toStream:outputStream];
+                // ECHAI: Using image queue. Imagethread does a lot of image heavy lifting
+                [ConnectionPacketComms sendPacket_JpegImageThread: (CVPixelBufferRef*) &self->_currentPixelBuffer toQueue:self.writePacketQueue toImageQueue: self.imageQueue toStream:outputStream];
             }
         }
         self->_frame_count++;
@@ -621,10 +728,12 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
         self->_currentPixelBuffer = nil;
     }
 }
+ 
 - (BOOL)videoProcessorEnabled {
     return YES;
 }
 
+/*
 - (void)showCurrentFrameImage {
     CVPixelBufferRef pixelBuffer;
     if (self->_currentPixelBuffer) {
@@ -634,12 +743,15 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
             UIImageView* imgView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, image.size.width / 4, image.size.height / 4)];
             imgView.image = image;
             [self.fpvPreviewView addSubview:imgView];
+            self.fpvP
         }
     }
 }
-
+ */
+////////////////////
 - (void) executeVirtualStickCommand_ModeA: (DroneInterface::VirtualStickCommand_ModeA *) command {
     DJIFlightController* fc = [DJIUtils fetchFlightController];
+
     [fc setRollPitchCoordinateSystem:DJIVirtualStickFlightCoordinateSystemGround];
     
     DJIVirtualStickFlightControlData ctrlData;
@@ -647,15 +759,51 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     ctrlData.roll = command->V_North;
     ctrlData.pitch = command->V_East;
     ctrlData.verticalThrottle = command->HAG;
+    DJILogDebug(@"About to send crtlData");
     
     if (fc.isVirtualStickControlModeAvailable) {
         [fc sendVirtualStickFlightControlData:ctrlData withCompletion:^(NSError * _Nullable error) {
+            if (error){
+                DJILogDebug(@"crtlData failed to Send:%@",error);
+            }
+            
+            else {
+                DJILogDebug(@"crtlData sucessfully sent");
+                NSString *rollPitchUnit = @"m/s";
+                NSString *yawUnit = @"m/s";
+                NSString *verticalUnit = @"m/s";
+                if (fc.rollPitchControlMode == DJIVirtualStickRollPitchControlModeVelocity){
+                    rollPitchUnit = @"degrees";
+                }
+                if (fc.yawControlMode == DJIVirtualStickYawControlModeAngle){
+                    yawUnit = @"degrees";
+                }
+                if (fc.verticalControlMode == DJIVirtualStickVerticalControlModePosition){
+                    verticalUnit = @"m";
+                }
+                DJILogDebug(@"Yaw: %.6f %@",ctrlData.yaw, yawUnit);
+                DJILogDebug(@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit);
+                DJILogDebug(@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit);
+                DJILogDebug(@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    
+                    self->_status0Label.text = @"Issuing Command Packet ModeA!";
+                    self->_status1Label.text = [NSString stringWithFormat:@"Yaw: %.6f %@",ctrlData.yaw, yawUnit];
+                    self->_status2Label.text = [NSString stringWithFormat:@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit];
+                    self->_status3Label.text = [NSString stringWithFormat:@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit];
+                    self->_status4Label.text = [NSString stringWithFormat:@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit];
+                    
 
+                   // do work here to Usually to update the User Interface
+                });
+            }
+            
         }];
     } else {
         //https://developer.dji.com/api-reference/ios-api/Components/FlightController/DJIFlightController.html#djiflightcontroller_virtualstickcontrolmodecategory_isvirtualstickcontrolmodeavailable_inline
         NSLog(@"Virtual stick control mode is not available in the current flight conditions. See documentation for details.");
     }
+    
 }
 
 - (void) executeVirtualStickCommand_ModeB: (DroneInterface::VirtualStickCommand_ModeB *) command {
@@ -674,26 +822,32 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                 DJILogDebug(@"crtlData failed to Send:%@",error);
             }
             else {
-                dispatch_sync(dispatch_get_main_queue(), ^{
-                    // Synchronous dispatch!
-                    NSString *rollPitchUnit = @"m/s";
-                    NSString *yawUnit = @"m/s";
-                    NSString *verticalUnit = @"m/s";
-                    if (fc.rollPitchControlMode == DJIVirtualStickRollPitchControlModeVelocity){
-                        rollPitchUnit = @"degrees";
-                    }
-                    if (fc.yawControlMode == DJIVirtualStickYawControlModeAngle){
-                        yawUnit = @"degrees";
-                    }
-                    if (fc.verticalControlMode == DJIVirtualStickVerticalControlModePosition){
-                        verticalUnit = @"m";
-                    }
-                    
-                    self->_status0Label.text = @"Issuing Command Packet ModeA!";
+
+                NSString *rollPitchUnit = @"m/s";
+                NSString *yawUnit = @"m/s";
+                NSString *verticalUnit = @"m/s";
+                if (fc.rollPitchControlMode == DJIVirtualStickRollPitchControlModeVelocity){
+                    rollPitchUnit = @"degrees";
+                }
+                if (fc.yawControlMode == DJIVirtualStickYawControlModeAngle){
+                    yawUnit = @"degrees";
+                }
+                if (fc.verticalControlMode == DJIVirtualStickVerticalControlModePosition){
+                    verticalUnit = @"m";
+                }
+                DJILogDebug(@"Mode B");
+                DJILogDebug(@"Yaw: %.6f %@",ctrlData.yaw, yawUnit);
+                DJILogDebug(@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit);
+                DJILogDebug(@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit);
+                DJILogDebug(@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit);
+                dispatch_async(dispatch_get_main_queue(), ^{
+
+                    self->_status0Label.text = @"Issuing Command Packet ModeB!";
                     self->_status1Label.text = [NSString stringWithFormat:@"Yaw: %.6f %@",ctrlData.yaw, yawUnit];
                     self->_status2Label.text = [NSString stringWithFormat:@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit];
-                    self->_status2Label.text = [NSString stringWithFormat:@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit];
-                    self->_status2Label.text = [NSString stringWithFormat:@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit];
+                    self->_status3Label.text = [NSString stringWithFormat:@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit];
+                    self->_status4Label.text = [NSString stringWithFormat:@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit];
+
                    // do work here to Usually to update the User Interface
                 });
             }
@@ -719,17 +873,26 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 }
 
 - (void) stopDJIWaypointMission {
+    if(([self missionOperator].currentState != DJIWaypointMissionStateExecuting) || ([self missionOperator].currentState != DJIWaypointMissionStateExecutionPaused)){
+        DJILogDebug([NSString stringWithFormat:@"Not ready! stopMissionwithCompletion will fail"]);
+    }
     [[self missionOperator] stopMissionWithCompletion:^(NSError * _Nullable error) {
-        
+        if (error) {
+            DJILogDebug(@"Mission failed to stop with error: %@", error);
+        }
+        else{
+            DJILogDebug(@"Stop and hover command successfully completed!");
+        }
     }];
 }
 
 - (void) executeDJIWaypointMission: (DroneInterface::WaypointMission *) mission {
     [self createDJIWaypointMission:mission];
+    
     if(([self missionOperator].currentState != DJIWaypointMissionStateReadyToUpload) || ([self missionOperator].currentState != DJIWaypointMissionStateReadyToExecute)){
         DJILogDebug([NSString stringWithFormat:@"Not ready! Upload will fail!"]);
     }
-    DJILogDebug(@"There are %d waypoints", self->_waypointMission.waypointCount);
+    
     NSError *error = [[self missionOperator] loadMission: self->_waypointMission];
     if (error) {
         DJILogDebug(@"loadMission Fail: %@", error);
@@ -737,8 +900,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     else{
         DJILogDebug(@"loadMission succeeded!");
     }
-    // On mission upload
-    //WeakRef(target);
+
     [[self missionOperator] uploadMissionWithCompletion:^(NSError * _Nullable error) {
         if (error) {
             NSLog(@"ERROR: uploadMission:withCompletion:. %@", error.description);
@@ -747,35 +909,13 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
         else {
             NSLog(@"SUCCESS: uploadMission:withCompletion:.");
             DJILogDebug(@"uploadMission Succeeded: %@", error);
-            self->_status0Label.text = @"Upload completed! Displaying uploaded waypoint";
+            #ifdef ENABLE_DEBUG_MODE
             // ECHAI: Edited out for testing[self startDJIWaypointMission];
-            
-            
-            // Completion block that runs if download complete
-            //if (self->_waypointMission){
             if ([self missionOperator].loadedMission){
-                //NSMutableArray <DJIWaypointV2 *> *waypoints;
-                //WeakReturn(target);
-                DJIWaypoint * currentWaypoint = [[NSMutableArray alloc] initWithArray:self->_waypointMission.allWaypoints][self->_missionDisplayCounter];
-                // Synchronous dispatch!
-                // Wait until text is updated before incrementing
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    
-                    self->_status1Label.text = [NSString stringWithFormat:@"Waypoint ID: %d",self->_missionDisplayCounter];
-                    self->_status4Label.text = [NSString stringWithFormat:@"Latitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.latitude];
-                    self->_status5Label.text = [NSString stringWithFormat:@"Longitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.longitude];
-                    //6: Altitutde in meters
-                   self->_status6Label.text = [NSString stringWithFormat:@"Altitude in meters: %.4f",currentWaypoint.altitude];
-               // 7: Corner Radius in meters
-                   self->_status7Label.text = [NSString stringWithFormat:@"Corner Radius in meters: %.4f ",currentWaypoint.cornerRadiusInMeters];
-               // 8: Speed in meters
-                   self->_status8Label.text = [NSString stringWithFormat:@"Speed in m/s: %.4f",currentWaypoint.speed];
-               // 9: LoiterTime in milliseconds. This is a waypoint action
-                   unsigned long num_actions = [currentWaypoint.waypointActions count];
-                   self->_status9Label.text = [NSString stringWithFormat:@"There are waypoint %lu actions!",num_actions];
-                });
-
+                DJIWaypointMission * inspectMission = [self missionOperator].loadedMission;
+                [self debugWaypointMission:inspectMission];
             }
+            #endif
         }
         
     }];
@@ -785,10 +925,36 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
         }];
 }
 
-
+- (void) debugWaypointMission: (DJIWaypointMission *) mission{
+    
+        DJIWaypoint * currentWaypoint = [[NSMutableArray alloc] initWithArray:mission.allWaypoints][self->_missionDisplayCounter];
+        // Synchronous dispatch!
+        // Wait until text is updated before incrementing
+        dispatch_async(dispatch_get_main_queue(), ^{
+            
+            self->_status1Label.text = [NSString stringWithFormat:@"Waypoint ID: %d",self->_missionDisplayCounter];
+            self->_status4Label.text = [NSString stringWithFormat:@"Latitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.latitude];
+            self->_status5Label.text = [NSString stringWithFormat:@"Longitude in WGS 84: %.6f degrees",currentWaypoint.coordinate.longitude];
+            //6: Altitutde in meters
+           self->_status6Label.text = [NSString stringWithFormat:@"Altitude in meters: %.4f",currentWaypoint.altitude];
+       // 7: Corner Radius in meters
+           self->_status7Label.text = [NSString stringWithFormat:@"Corner Radius in meters: %.4f ",currentWaypoint.cornerRadiusInMeters];
+       // 8: Speed in meters
+           self->_status8Label.text = [NSString stringWithFormat:@"Speed in m/s: %.4f",currentWaypoint.speed];
+       // 9: LoiterTime in milliseconds. This is a waypoint action
+           unsigned long num_actions = [currentWaypoint.waypointActions count];
+           self->_status9Label.text = [NSString stringWithFormat:@"There are waypoint %lu actions!",num_actions];
+            self->_missionDisplayCounter +=1;
+            if (self->_missionDisplayCounter >= mission.waypointCount){
+                self->_missionDisplayCounter = 0;
+            }
+        });
+}
 
 ////////////////////
 @end
+
+
 
 /*
 - (void)videoFeed:(nonnull DJIVideoFeed *)videoFeed didUpdateVideoData:(nonnull NSData *)videoData {

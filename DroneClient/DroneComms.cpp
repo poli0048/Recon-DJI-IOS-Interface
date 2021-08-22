@@ -1,6 +1,11 @@
+
+
 //Project Includes
 #include "DroneComms.hpp"
 #include <algorithm>
+
+
+
 //#include <iostream>
 #define PI 3.14159265358979
 #define cornerRadiusLow 0.2
@@ -72,6 +77,21 @@ static void encodeField_Image (std::vector<uint8_t> & Buffer, const Image * x) {
         encodeField_uint8(Buffer, (uint8_t) x->bitmap[i + 2]);
     }
 }
+
+static void encodeField_CompressedImage (std::vector<uint8_t> & Buffer, cv::Mat const & x) {
+    if (x.type() != CV_8UC3) {
+        std::cerr << "Internal Error in encodeField_CompressedImage(): Only 3-channel (RGB) 8-bit depth images supported.\r\n";
+        return;
+    }
+    
+    std::vector<uint8_t> buff;
+    std::vector<int> param(2);
+    param[0] = cv::IMWRITE_JPEG_QUALITY;
+    param[1] = 95; //Quality parameter: default(95) 0-100
+    cv::imencode(".jpg", x, buff, param);
+    Buffer.insert(Buffer.end(), buff.begin(), buff.end());
+}
+
 
 
 // ****************************************************************************************************************************************
@@ -154,6 +174,8 @@ static std::string decodeField_String (std::vector<uint8_t>::const_iterator & It
     MaxBytes -= bytesForObject;
     return(S);
 }
+
+
 
 namespace DroneInterface {
     // ****************************************************************************************************************************************
@@ -373,6 +395,47 @@ namespace DroneInterface {
         TargetPacket.AddHash();
     }
 
+
+// ****************************************************************************************************************************************
+// ***********************************************   Packet_CompressedImage Implementation   **********************************************
+// ****************************************************************************************************************************************
+bool Packet_CompressedImage::operator==(Packet_CompressedImage const & Other) const {
+    if (this->TargetFPS != Other.TargetFPS)
+        return false;
+    if ((this->Frame.rows != Other.Frame.rows) || (this->Frame.cols != Other.Frame.cols))
+        return false;
+    if (this->Frame.type() != Other.Frame.type())
+        return false;
+    for (int row = 0; row < this->Frame.rows; row++) {
+        for (int col = 0; col < this->Frame.cols; col++) {
+            cv::Vec3b A = this->Frame.at<cv::Vec3b>(row, col);
+            cv::Vec3b B = Other.Frame.at<cv::Vec3b>(row, col);
+            if ((A(0) != B(0)) || (A(1) != B(1)) || (A(2) != B(2)))
+                return false;
+        }
+    }
+    return true;
+}
+
+void Packet_CompressedImage::Serialize(Packet & TargetPacket) const {
+    TargetPacket.Clear();
+    TargetPacket.AddHeader(uint32_t(0U), uint8_t(5U)); //Use a dummy value (0) for size since we only know it after compression
+    encodeField_float32(TargetPacket.m_data, TargetFPS);
+    encodeField_CompressedImage(TargetPacket.m_data, Frame);
+    
+    //Update the header with the correct packet size
+    uint32_t packetSize = (uint32_t) TargetPacket.m_data.size() + 2U; //Don't forget the hash field, which hasn't been added yet
+    TargetPacket.m_data[2] = (uint8_t) (packetSize >> 24);
+    TargetPacket.m_data[3] = (uint8_t) (packetSize >> 16);
+    TargetPacket.m_data[4] = (uint8_t) (packetSize >> 8 );
+    TargetPacket.m_data[5] = (uint8_t) (packetSize      );
+    
+    //Add hash after updating the packet size field
+    TargetPacket.AddHash();
+}
+
+
+
     // ****************************************************************************************************************************************
     // ************************************************   Packet_Acknowledgment Implementation   **********************************************
     // ****************************************************************************************************************************************
@@ -510,13 +573,13 @@ namespace DroneInterface {
         encodeField_uint8(TargetPacket.m_data, CurvedFlight);
         for (auto const & waypoint : Waypoints) {
             // convert back to radians to send to Drone server which uses radians by default
-            encodeField_float64(TargetPacket.m_data, waypoint.Latitude*PI/180.0);
-            encodeField_float64(TargetPacket.m_data, waypoint.Longitude*PI/180.0);
-            encodeField_float64(TargetPacket.m_data, waypoint.Altitude*PI/180.0);
+            encodeField_float64(TargetPacket.m_data, waypoint.Latitude);
+            encodeField_float64(TargetPacket.m_data, waypoint.Longitude);
+            encodeField_float64(TargetPacket.m_data, waypoint.Altitude);
             encodeField_float32(TargetPacket.m_data, waypoint.CornerRadius);
             encodeField_float32(TargetPacket.m_data, waypoint.Speed);
             encodeField_float32(TargetPacket.m_data, waypoint.LoiterTime);
-            encodeField_float32(TargetPacket.m_data, waypoint.GimbalPitch*PI/180.0);
+            encodeField_float32(TargetPacket.m_data, waypoint.GimbalPitch);
         }
         TargetPacket.AddHash();
     }
@@ -530,7 +593,6 @@ namespace DroneInterface {
         auto iter    = SourcePacket.m_data.cbegin() + 7U; //Const iterater to begining of payload
         LandAtEnd    = decodeField_uint8(iter);
         CurvedFlight = decodeField_uint8(iter);
-        
         Waypoints.clear();
         unsigned int waypointBytes = (unsigned int) SourcePacket.m_data.size() - 9U - 2U;
         if (waypointBytes % 40U != 0U) {
@@ -589,6 +651,7 @@ namespace DroneInterface {
         V_y     = std::clamp(decodeField_float32(iter), (float) -15.0, (float) 15.0);  //[-15, 15] for DJIVirtualStickRollPitchControlModeVelocity
         HAG     = std::clamp(decodeField_float32(iter), (float) 0.0, (float) 500.0);  //[0, 500] for DJIVirtualStickVerticalControlModePosition
         timeout = decodeField_float32(iter);
+         
         return true;
     }
 }

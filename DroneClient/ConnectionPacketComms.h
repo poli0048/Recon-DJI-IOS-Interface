@@ -23,11 +23,16 @@
 
 + (void) sendPacket_ExtendedTelemetryThread:(struct extendedTelemetrySkeleton) extendedTelemetry  toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream;
 
-+ (void) sendPacket_ImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream;
++ (void) sendPacket_ImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toImageQueue:(dispatch_queue_t) imageQueue toStream:( NSOutputStream *)writeStream;
+
++ (void) sendPacket_JpegImageThread:(CVPixelBufferRef*) currentPixelBuffer toQueue:(dispatch_queue_t) targetQueue toImageQueue:(dispatch_queue_t) imageQueue toStream:( NSOutputStream *)writeStream;
+
 
 + (void) sendPacket_MessageStringThread:(NSString*)msg ofType:(UInt8)type toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream;
 
 + (void) sendPacket_AcknowledgmentThread:(BOOL) positive withPID:(UInt8)source_pid toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream;
+
+
 @end
 
 #endif /* ConnectionPacketComms_h */
