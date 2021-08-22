@@ -1,6 +1,9 @@
 # Recon-DJI-IOS-Interface
 This is an iOS companion App to enable the Recon ground control station (https://github.com/poli0048/Recon) to interact with DJI drones.
 
+Latest update requires adding the opencv framework from the "iOS pack": https://opencv.org/releases/ 
+Drag and drop opencv2.framework into DroneClient project folder in Xcode to setup.
+
 # Contributors and License
 Recon is primarily developed by:
  * Stanford University
