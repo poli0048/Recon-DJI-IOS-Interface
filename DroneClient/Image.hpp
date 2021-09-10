@@ -17,3 +17,5 @@ class Image {
         int cols;
         int size_pixel;
 };
+
+

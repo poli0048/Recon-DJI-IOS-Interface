@@ -14,3 +14,4 @@ Image::Image(unsigned char * bitmap, int rows, int cols, int size_pixel) {
     this->cols = cols;
     this->size_pixel = size_pixel;
 }
+

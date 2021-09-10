@@ -4,11 +4,27 @@
 //
 //  Created by Ben Choi on 4/11/21.
 //
-
+//#import "DroneComms.hpp"
 #import "ImageUtils.h"
 
 
 @implementation ImageUtils
+
++ (UIImage *)imageFromPixelBuffer:(CVPixelBufferRef)pixelBufferRef {
+    CVImageBufferRef imageBuffer =  pixelBufferRef;
+    CIImage* sourceImage = [[CIImage alloc] initWithCVPixelBuffer:imageBuffer options:nil];
+    CGSize size = sourceImage.extent.size;
+    UIGraphicsBeginImageContext(size);
+    CGRect rect;
+    rect.origin = CGPointZero;
+    rect.size = size;
+    UIImage *remImage = [UIImage imageWithCIImage:sourceImage];
+    [remImage drawInRect:rect];
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result;
+}
+
 
 
 + (unsigned char *) convertUIImageToBitmapRGBA8:(UIImage *) image {

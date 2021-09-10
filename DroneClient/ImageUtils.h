@@ -8,6 +8,10 @@
 #ifndef ImageUtils_h
 #define ImageUtils_h
 
+// External Include
+// This ifdef is important for
+
+
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
@@ -37,6 +41,9 @@
 + (UIImage *) convertBitmapRGBA8ToUIImage:(unsigned char *)buffer
     withWidth:(int)width
     withHeight:(int)height;
+
++ (UIImage *)imageFromPixelBuffer:(CVPixelBufferRef)pixelBufferRef;
+
 
 @end
 

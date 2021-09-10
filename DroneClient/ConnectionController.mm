@@ -104,14 +104,24 @@
     [ConnectionPacketComms sendPacket_CoreTelemetryThread:self->_coreTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
 
     DJILogDebug(@"Sending debug message");
+    /*
     if ([self missionOperator].loadedMission){
         DJIWaypointMission * inspectMission = [self missionOperator].loadedMission;
         [self debugWaypointMission:inspectMission];
     }
     
-
+    */
 
     self->_status0Label.text = @"Updating Telemetry";
+    if (self->_coreTelemetry._isFlying){
+        self->_status1Label.text = @"Core Telemetry says, is flying";
+        DJILogDebug(@"is flying");
+    }
+    else {
+        self->_status1Label.text = @"Core Telemetry says, is not flying";
+        DJILogDebug(@"Drone is not flying");
+    }
+    DJILogDebug(@"is flying");
     self->_status1Label.text = [NSString stringWithFormat:@"Latitude %.6f",self->_coreTelemetry._latitude];
     self->_status2Label.text = [NSString stringWithFormat:@"Longitude: %.6f",self->_coreTelemetry._longitude];
     self->_status3Label.text = [NSString stringWithFormat:@"HAG: %.6f meters",self->_coreTelemetry._HAG];
