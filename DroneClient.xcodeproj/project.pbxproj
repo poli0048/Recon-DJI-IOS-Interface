@@ -23,6 +23,9 @@
 		DA77B7EB25E7491600F2AC99 /* ConnectionController.mm in Sources */ = {isa = PBXBuildFile; fileRef = DA77B7EA25E7491600F2AC99 /* ConnectionController.mm */; };
 		DAEED9F5261D8D3900469295 /* VideoPreviewerSDKAdapter.m in Sources */ = {isa = PBXBuildFile; fileRef = DAEED9F4261D8D3900469295 /* VideoPreviewerSDKAdapter.m */; };
 		DAEED9F9261D8DB200469295 /* DJIDecodeImageCalibrateControlLogic.m in Sources */ = {isa = PBXBuildFile; fileRef = DAEED9F8261D8DB200469295 /* DJIDecodeImageCalibrateControlLogic.m */; };
+		E7DA842526F3CCC70078F927 /* ConnectionPacketComms.mm in Sources */ = {isa = PBXBuildFile; fileRef = E7DA842426F3CCC70078F927 /* ConnectionPacketComms.mm */; };
+		E7DA842826F3CCD60078F927 /* ImageProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = E7DA842726F3CCD60078F927 /* ImageProcessor.m */; };
+		E7DA842A26F3CCE60078F927 /* OpenCVWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7DA842926F3CCE60078F927 /* OpenCVWrapper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +61,12 @@
 		DAEED9F4261D8D3900469295 /* VideoPreviewerSDKAdapter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VideoPreviewerSDKAdapter.m; sourceTree = "<group>"; };
 		DAEED9F7261D8D8800469295 /* DJIDecodeImageCalibrateControlLogic.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DJIDecodeImageCalibrateControlLogic.h; sourceTree = "<group>"; };
 		DAEED9F8261D8DB200469295 /* DJIDecodeImageCalibrateControlLogic.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DJIDecodeImageCalibrateControlLogic.m; sourceTree = "<group>"; };
+		E7DA842026F3CC2C0078F927 /* DroneClient-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "DroneClient-Bridging-Header.h"; sourceTree = "<group>"; };
+		E7DA842326F3CCC70078F927 /* ConnectionPacketComms.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ConnectionPacketComms.h; sourceTree = "<group>"; };
+		E7DA842426F3CCC70078F927 /* ConnectionPacketComms.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = ConnectionPacketComms.mm; sourceTree = "<group>"; };
+		E7DA842626F3CCD60078F927 /* ImageProcessor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ImageProcessor.h; sourceTree = "<group>"; };
+		E7DA842726F3CCD60078F927 /* ImageProcessor.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ImageProcessor.m; sourceTree = "<group>"; };
+		E7DA842926F3CCE60078F927 /* OpenCVWrapper.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = OpenCVWrapper.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +111,11 @@
 		DA7363B625E73C3700057830 /* DroneClient */ = {
 			isa = PBXGroup;
 			children = (
+				E7DA842926F3CCE60078F927 /* OpenCVWrapper.swift */,
+				E7DA842626F3CCD60078F927 /* ImageProcessor.h */,
+				E7DA842726F3CCD60078F927 /* ImageProcessor.m */,
+				E7DA842326F3CCC70078F927 /* ConnectionPacketComms.h */,
+				E7DA842426F3CCC70078F927 /* ConnectionPacketComms.mm */,
 				DA627B81261545DF0016323F /* DroneComms.cpp */,
 				DA627B80261545DF0016323F /* DroneComms.hpp */,
 				DA1CD04925E73D9500DF3D45 /* ConfigViewController.h */,
@@ -130,6 +144,7 @@
 				DA7363C525E73C3A00057830 /* LaunchScreen.storyboard */,
 				DA7363C825E73C3A00057830 /* Info.plist */,
 				DA7363C925E73C3A00057830 /* main.m */,
+				E7DA842026F3CC2C0078F927 /* DroneClient-Bridging-Header.h */,
 			);
 			path = DroneClient;
 			sourceTree = "<group>";
@@ -174,6 +189,7 @@
 				TargetAttributes = {
 					DA7363B325E73C3700057830 = {
 						CreatedOnToolsVersion = 12.3;
+						LastSwiftMigration = 1250;
 					};
 				};
 			};
@@ -256,12 +272,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				DAEED9F5261D8D3900469295 /* VideoPreviewerSDKAdapter.m in Sources */,
+				E7DA842526F3CCC70078F927 /* ConnectionPacketComms.mm in Sources */,
 				DA1CD04D25E73D9600DF3D45 /* ConfigViewController.m in Sources */,
 				DA7363B925E73C3700057830 /* AppDelegate.m in Sources */,
 				DA1732DD2623F8E8001FC12C /* ImageUtils.m in Sources */,
+				E7DA842826F3CCD60078F927 /* ImageProcessor.m in Sources */,
 				DA7363CA25E73C3A00057830 /* main.m in Sources */,
 				DA7363BC25E73C3700057830 /* SceneDelegate.m in Sources */,
 				DA1732E62623FE35001FC12C /* Image.cpp in Sources */,
+				E7DA842A26F3CCE60078F927 /* OpenCVWrapper.swift in Sources */,
 				DAEED9F9261D8DB200469295 /* DJIDecodeImageCalibrateControlLogic.m in Sources */,
 				DA627B82261545DF0016323F /* DroneComms.cpp in Sources */,
 				DA627B76261515350016323F /* DJIUtils.m in Sources */,
@@ -410,6 +429,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = PYF2F3FXQD;
 				GCC_INPUT_FILETYPE = automatic;
@@ -420,6 +441,9 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = NIFA.DroneClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "DroneClient/DroneClient-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -430,6 +454,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = PYF2F3FXQD;
 				GCC_INPUT_FILETYPE = automatic;
@@ -440,6 +466,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = NIFA.DroneClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "DroneClient/DroneClient-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

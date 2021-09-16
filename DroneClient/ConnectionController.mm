@@ -114,7 +114,7 @@
 // Executes when SEND DEBUG COMMAND button is pressed
 - (IBAction)sendDebugMessage:(id)sender {
     //[self sendPacket_CoreTelemetry];
-    [ConnectionPacketComms sendPacket_CoreTelemetryThread:self->_coreTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
+    //[ConnectionPacketComms sendPacket_CoreTelemetryThread:self->_coreTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
 
     DJILogDebug(@"Sending debug message");
     /*
@@ -125,13 +125,13 @@
     
     */
 
-    self->_status0Label.text = @"Updating Telemetry";
+    /*self->_status0Label.text = @"Updating Telemetry";
     if (self->_coreTelemetry._isFlying){
-        self->_status1Label.text = @"Core Telemetry says, is flying";
+        //self->_status1Label.text = @"Core Telemetry says, is flying";
         DJILogDebug(@"is flying");
     }
     else {
-        self->_status1Label.text = @"Core Telemetry says, is not flying";
+        //self->_status1Label.text = @"Core Telemetry says, is not flying";
         DJILogDebug(@"Drone is not flying");
     }
     DJILogDebug(@"is flying");
@@ -144,13 +144,38 @@
     self->_status6Label.text = [NSString stringWithFormat:@"GNSSSignal: %d",self->_extendedTelemetry._GNSSSignal];
     self->_status7Label.text = [NSString stringWithFormat:@"WindLevel: %d",self->_extendedTelemetry._wind_level];
     self->_status8Label.text = [NSString stringWithFormat:@"DJICam: %d ",self->_extendedTelemetry._dji_cam];
-    self->_status9Label.text = [NSString stringWithFormat:@"Flight Mode: %d ",self->_extendedTelemetry._flight_mode];
+    self->_status9Label.text = [NSString stringWithFormat:@"Flight Mode: %d ",self->_extendedTelemetry._flight_mode];*/
         
+    NSString * DEBUGMessage1;
+    if (self->_coreTelemetry._isFlying)
+        DEBUGMessage1 = @"IsFlying: Yes";
+    else
+        DEBUGMessage1 = @"IsFlying: No";
     
+    NSString * DEBUGMessage2 = [NSString stringWithFormat:@"Latitude %.6f",self->_coreTelemetry._latitude];
+    NSString * DEBUGMessage3 = [NSString stringWithFormat:@"Longitude: %.6f",self->_coreTelemetry._longitude];
+    NSString * DEBUGMessage4 = [NSString stringWithFormat:@"HAG: %.1f meters",self->_coreTelemetry._HAG];
+    NSString * DEBUGMessage5 = [NSString stringWithFormat:@"Altitude: %.1f meters ",self->_coreTelemetry._altitude];
+    
+    NSString * DEBUGMessage6 = [NSString stringWithFormat:@"V_N: %.1f",self->_coreTelemetry._velocity_n];
+    NSString * DEBUGMessage7 = [NSString stringWithFormat:@"V_E: %.1f",self->_coreTelemetry._velocity_e];
+    NSString * DEBUGMessage8 = [NSString stringWithFormat:@"V_D: %.1f",self->_coreTelemetry._velocity_d];
+    
+    NSString * DEBUGMessage9 = [NSString stringWithFormat:@"GNSSSatCount: %d",self->_extendedTelemetry._GNSSSatCount];
+    NSString * DEBUGMessage10 = [NSString stringWithFormat:@"GNSSSignal: %d",self->_extendedTelemetry._GNSSSignal];
+    NSString * DEBUGMessage11 = [NSString stringWithFormat:@"WindLevel: %d",self->_extendedTelemetry._wind_level];
+    NSString * DEBUGMessage12 = [NSString stringWithFormat:@"DJICam: %d ",self->_extendedTelemetry._dji_cam];
+    NSString * DEBUGMessage13 = [NSString stringWithFormat:@"Flight Mode: %d ",self->_extendedTelemetry._flight_mode];
+    
+    NSString * DebugMessage_Full = [NSString
+       stringWithFormat:@"%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n%@\r\n",
+       DEBUGMessage1, DEBUGMessage2,  DEBUGMessage3,  DEBUGMessage4,
+       DEBUGMessage5, DEBUGMessage6,  DEBUGMessage7,  DEBUGMessage8,
+       DEBUGMessage9, DEBUGMessage10, DEBUGMessage11, DEBUGMessage12,
+       DEBUGMessage13];
 
-
-
-    [ConnectionPacketComms sendPacket_MessageStringThread:TEST_MESSAGE ofType: 2 toQueue:self.writePacketQueue toStream:outputStream];
+    [ConnectionPacketComms sendPacket_MessageStringThread:DebugMessage_Full ofType: 2 toQueue:self.writePacketQueue toStream:outputStream];
+    //[ConnectionPacketComms sendPacket_MessageStringThread:TEST_MESSAGE ofType: 2 toQueue:self.writePacketQueue toStream:outputStream];
 }
 
 
@@ -467,8 +492,8 @@
     [self.previewerAdapter start];
     [[DJIVideoPreviewer instance] registFrameProcessor:self];
     [[DJIVideoPreviewer instance] setEnableHardwareDecode:true];
-    self->_frame_count = 0;
-    self->_extendedTelemetry._dji_cam = 2;
+    self->_frame_count = 1;
+    self->_extendedTelemetry._dji_cam = 1;
     self->_target_fps = 30;
     self->_time_of_last_virtual_stick_command = [NSDate date];
 }
@@ -603,7 +628,8 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 - (void)flightController:(DJIFlightController *)fc didUpdateState:(DJIFlightControllerState *)state
 {
     self->_extendedTelemetry._GNSSSignal = [DJIUtils getGNSSSignal:[state GPSSignalLevel]];
-    if([DJIUtils gpsStatusIsGood:[state GPSSignalLevel]])
+    //if([DJIUtils gpsStatusIsGood:[state GPSSignalLevel]])
+    if (state.aircraftLocation != nil)
     {
         self->_coreTelemetry._latitude = state.aircraftLocation.coordinate.latitude;
         self->_coreTelemetry._longitude = state.aircraftLocation.coordinate.longitude;
@@ -662,6 +688,23 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     //[NSThread sleepForTimeInterval: 0.5];
     [ConnectionPacketComms sendPacket_ExtendedTelemetryThread:self->_extendedTelemetry  toQueue:self.writePacketQueue toStream:outputStream];
     //[NSThread sleepForTimeInterval: 0.5];
+    
+    //Update Labels
+    if (self->_coreTelemetry._isFlying)
+        self->_status0Label.text = @"IsFlying: Yes";
+    else
+        self->_status0Label.text = @"IsFlying: No";
+    
+    self->_status1Label.text = [NSString stringWithFormat:@"Latitude %.6f",self->_coreTelemetry._latitude];
+    self->_status2Label.text = [NSString stringWithFormat:@"Longitude: %.6f",self->_coreTelemetry._longitude];
+    self->_status3Label.text = [NSString stringWithFormat:@"HAG: %.6f meters",self->_coreTelemetry._HAG];
+    self->_status4Label.text = [NSString stringWithFormat:@"Altitude: %.6f meters ",self->_coreTelemetry._altitude];
+
+    self->_status5Label.text = [NSString stringWithFormat:@"GNSSSatCount: %d",self->_extendedTelemetry._GNSSSatCount];
+    self->_status6Label.text = [NSString stringWithFormat:@"GNSSSignal: %d",self->_extendedTelemetry._GNSSSignal];
+    self->_status7Label.text = [NSString stringWithFormat:@"WindLevel: %d",self->_extendedTelemetry._wind_level];
+    self->_status8Label.text = [NSString stringWithFormat:@"DJICam: %d ",self->_extendedTelemetry._dji_cam];
+    self->_status9Label.text = [NSString stringWithFormat:@"Flight Mode: %d ",self->_extendedTelemetry._flight_mode];
 }
 
 
@@ -734,7 +777,10 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 
 - (void) videoProcessFrame:(VideoFrameYUV *)frame {
     if (frame->cv_pixelbuffer_fastupload != nil) {
-        if (self->_extendedTelemetry._dji_cam == 2 && (self->_frame_count % ((int) self->_target_fps) == 0)) {
+        //According to DJI docs, the live streams are 30 fps regardless of the source
+        int targetFramePeriod = std::clamp((int) std::round(30.0f/self->_target_fps), 1, 120);
+        
+        if (self->_extendedTelemetry._dji_cam == 2 && (self->_frame_count >= targetFramePeriod)) {
             
             CVPixelBufferRef pixelBuffer = (CVPixelBufferRef) frame->cv_pixelbuffer_fastupload;
             if (self->_currentPixelBuffer) {
@@ -751,7 +797,8 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                 [ConnectionPacketComms sendPacket_JpegImageThread: (CVPixelBufferRef*) &self->_currentPixelBuffer toQueue:self.writePacketQueue toImageQueue: self.imageQueue toStream:outputStream];
             }
         }
-        self->_frame_count++;
+        else
+            self->_frame_count++;
     } else {
         self->_currentPixelBuffer = nil;
     }
