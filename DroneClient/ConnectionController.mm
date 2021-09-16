@@ -59,6 +59,7 @@
     [super viewDidAppear:animated];
     [self registerApp];
     
+
 #if ENABLE_DEBUG_MODE
     [DJISDKManager enableRemoteLoggingWithDeviceID:@"iOS_App" logServerURLString:[NSString stringWithFormat:@"http://%@:4567",ipAddress]];
 
@@ -78,6 +79,11 @@
     
     
     self->_missionDisplayCounter = 0;
+    
+    // This must be reset once the we no longer need to block sleep
+    // It is reset in the disconnect function
+    [UIApplication sharedApplication].idleTimerDisabled = YES;
+    
     DJILogDebug(@"iOS Client ready.");
 }
 
@@ -97,6 +103,13 @@
     [self connectToServer];
 }
 
+
+// Executes when DISCONNECT Button is pressed
+- (IBAction)disconnectApp:(id)sender {
+    [UIApplication sharedApplication].idleTimerDisabled = YES;
+    [DJISDKManager stopConnectionToProduct];
+    _uavConnectionStatusLabel.text = @"UAV Status: Disconnected";
+}
 
 // Executes when SEND DEBUG COMMAND button is pressed
 - (IBAction)sendDebugMessage:(id)sender {
@@ -439,6 +452,7 @@
     [outputStream setDelegate:nil];
     inputStream = nil;
     outputStream = nil;
+    [UIApplication sharedApplication].idleTimerDisabled = YES;
 }
 
 #pragma mark DJI Methods
@@ -468,6 +482,12 @@
         _uavConnectionStatusLabel.text = @"UAV Status: Connected";
         
         DJIFlightController* flightController = [DJIUtils fetchFlightController];
+        // Race condition if drone_serial is not set before flight controller delegate is assigned
+        // If delegate is assigned BEFORE drone_serial updated, then the flight controller could connect to Recon and send serial "00000" before the real drone_serial is updated
+        [flightController getSerialNumberWithCompletion:^(NSString * serialNumber, NSError * error) {
+            self->_extendedTelemetry._drone_serial = serialNumber;
+        }];
+        
         if (flightController) {
             flightController.delegate = self;
         }
@@ -486,9 +506,7 @@
             battery.delegate = self;
         }
         
-        [flightController getSerialNumberWithCompletion:^(NSString * serialNumber, NSError * error) {
-            self->_extendedTelemetry._drone_serial = serialNumber;
-        }];
+
         
         [flightController setVirtualStickModeEnabled:TRUE
                                       withCompletion:^(NSError * _Nullable error) {
