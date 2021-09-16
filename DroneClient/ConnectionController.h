@@ -102,9 +102,8 @@ struct extendedTelemetrySkeleton{
 @property (weak, nonatomic) IBOutlet UILabel *status7Label;
 @property (weak, nonatomic) IBOutlet UILabel *status8Label;
 @property (weak, nonatomic) IBOutlet UILabel *status9Label;
-@property (weak, nonatomic) IBOutlet UILabel *status10Label;
-@property (weak, nonatomic) IBOutlet UILabel *status11Label;
 @property (weak, nonatomic) IBOutlet UIButton *debugButton;
+@property (weak, nonatomic) IBOutlet UIButton *disconnectButton;
 
 
 @property(nonatomic) VideoPreviewerSDKAdapter *previewerAdapter;
