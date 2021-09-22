@@ -32,7 +32,7 @@
         // Couldn't figure out how to call it from this function if this function exists outside connectioncontroller
         bytes_written += [outputStream write:bytesNew maxLength:remaining];
     }
-    [NSThread sleepForTimeInterval: 0.001];
+    //[NSThread sleepForTimeInterval: 0.001];
 }
 
 + (void) sendPacket_CoreTelemetryThread:(struct coreTelemetrySkeleton) coreTelemetry  toQueue:(dispatch_queue_t) targetQueue toStream:( NSOutputStream *)writeStream{
