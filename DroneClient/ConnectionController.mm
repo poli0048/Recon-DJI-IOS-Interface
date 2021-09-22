@@ -860,7 +860,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                 DJILogDebug(@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit);
                 DJILogDebug(@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit);
                 DJILogDebug(@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit);
-                dispatch_async(dispatch_get_main_queue(), ^{
+                /*dispatch_async(dispatch_get_main_queue(), ^{
                     
                     self->_status0Label.text = @"Issuing Command Packet ModeA!";
                     self->_status1Label.text = [NSString stringWithFormat:@"Yaw: %.6f %@",ctrlData.yaw, yawUnit];
@@ -870,7 +870,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                     
 
                    // do work here to Usually to update the User Interface
-                });
+                });*/
             }
             
         }];
@@ -915,7 +915,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                 DJILogDebug(@"Roll: %.6f %@",ctrlData.roll, rollPitchUnit);
                 DJILogDebug(@"Pitch: %.6f %@",ctrlData.pitch, rollPitchUnit);
                 DJILogDebug(@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit);
-                dispatch_async(dispatch_get_main_queue(), ^{
+                /*dispatch_async(dispatch_get_main_queue(), ^{
 
                     self->_status0Label.text = @"Issuing Command Packet ModeB!";
                     self->_status1Label.text = [NSString stringWithFormat:@"Yaw: %.6f %@",ctrlData.yaw, yawUnit];
@@ -924,7 +924,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
                     self->_status4Label.text = [NSString stringWithFormat:@"Vertical Throttle: %.6f %@",ctrlData.verticalThrottle, verticalUnit];
 
                    // do work here to Usually to update the User Interface
-                });
+                });*/
             }
         }];
     } else {
