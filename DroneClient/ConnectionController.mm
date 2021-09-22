@@ -943,6 +943,14 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 
 - (void) startDJIWaypointMission {
     [[self missionOperator] startMissionWithCompletion:^(NSError * _Nullable error) {
+        if (error) {
+            NSLog(@"ERROR: startMission:withCompletion:. %@", error.description);
+            DJILogDebug(@"startMission Fail: %@", error);
+        }
+        else {
+            NSLog(@"SUCCESS: startMission:withCompletion:.");
+            DJILogDebug(@"startMission Succeeded: %@", error);
+        }
         
     }];
 }
@@ -984,13 +992,9 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
         else {
             NSLog(@"SUCCESS: uploadMission:withCompletion:.");
             DJILogDebug(@"uploadMission Succeeded: %@", error);
-            #ifdef ENABLE_DEBUG_MODE
-            // ECHAI: Edited out for testing[self startDJIWaypointMission];
-            if ([self missionOperator].loadedMission){
-                DJIWaypointMission * inspectMission = [self missionOperator].loadedMission;
-                [self debugWaypointMission:inspectMission];
-            }
-            #endif
+            
+            [self startDJIWaypointMission];
+
         }
         
     }];
