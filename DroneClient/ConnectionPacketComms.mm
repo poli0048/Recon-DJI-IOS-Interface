@@ -52,7 +52,7 @@
             packet_core.Altitude = coreTelemetry._altitude;
             packet_core.HAG = coreTelemetry._HAG;
             packet_core.V_N = coreTelemetry._velocity_n;
-            packet_core.V_N = coreTelemetry._velocity_e;
+            packet_core.V_E = coreTelemetry._velocity_e;
             packet_core.V_D = coreTelemetry._velocity_d;
             packet_core.Yaw = coreTelemetry._yaw;
             packet_core.Pitch = coreTelemetry._pitch;
