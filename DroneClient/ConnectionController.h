@@ -62,6 +62,7 @@ struct extendedTelemetrySkeleton{
     
     int needToSetMode;
     int _missionDisplayCounter;
+    bool _retryConnection;
     // Core Telemetry
 
     struct coreTelemetrySkeleton _coreTelemetry;
