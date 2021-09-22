@@ -834,7 +834,7 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     ctrlData.roll = command->V_North;
     ctrlData.pitch = command->V_East;
     ctrlData.verticalThrottle = command->HAG;
-    DJILogDebug(@"About to send crtlData");
+    //DJILogDebug(@"About to send crtlData");
     
     if (fc.isVirtualStickControlModeAvailable) {
         [fc sendVirtualStickFlightControlData:ctrlData withCompletion:^(NSError * _Nullable error) {
