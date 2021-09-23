@@ -86,7 +86,7 @@
     // It is reset in the disconnect function
     [UIApplication sharedApplication].idleTimerDisabled = YES;
     
-    DJILogDebug(@"iOS Client ready.");
+    //DJILogDebug(@"iOS Client ready.");
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -133,11 +133,11 @@
     self->_status0Label.text = @"Updating Telemetry";
     if (self->_coreTelemetry._isFlying){
         self->_status1Label.text = @"Core Telemetry says, is flying";
-        DJILogDebug(@"is flying");
+        //DJILogDebug(@"is flying");
     }
     else {
         self->_status1Label.text = @"Core Telemetry says, is not flying";
-        DJILogDebug(@"Drone is not flying");
+        //DJILogDebug(@"Drone is not flying");
     }
     DJILogDebug(@"is flying");
     self->_status1Label.text = [NSString stringWithFormat:@"Latitude %.6f",self->_coreTelemetry._latitude];
@@ -177,19 +177,31 @@
                 DroneInterface::Packet_EmergencyCommand* packet_ec = new DroneInterface::Packet_EmergencyCommand();
                 if (packet_ec->Deserialize(*packet_fragment)) {
                     NSLog(@"Successfully deserialized Emergency Command packet.");
-                    DJILogDebug(@"Deserialized Emergency Command Packet %d", packet_ec->Action);
+                    //DJILogDebug(@"Deserialized Emergency Command Packet %d", packet_ec->Action);
                     [ConnectionPacketComms sendPacket_AcknowledgmentThread:1 withPID:PID toQueue:self.writePacketQueue toStream:outputStream];
 
                     // no matter what, if flying, must try to stop mission is executing
-                    if (DJIFlightControllerParamIsFlying){
+                    if (self->_coreTelemetry._isFlying){
                         [self stopDJIWaypointMission];
+                        
+                        // Just in case, set virtual stick mode to False
+
+                         DJIFlightController* flightController = [DJIUtils fetchFlightController];
+                        [flightController setVirtualStickModeEnabled:FALSE
+                                                      withCompletion:^(NSError * _Nullable error) {
+                        
+                        }];
+                         
+                        
                     }
+
                     
                     // From here on, the drone is either hovering or on the ground
                     if (packet_ec->Action == 0){
                         // take off if drone is on the ground
-                        if (DJIFlightControllerParamIsFlying){
+                        if (!self->_coreTelemetry._isFlying ){
                             DJILogDebug(@"Drone is on ground. Will take off to hover");
+DJILogDebug(@"coreTelemetry.isFlying. DJIFLightControllerParamiSFlying = %@", DJIFlightControllerParamIsFlying);
                             
                             // TODO: will fail if motors are on -> must turn off motors to take off
                             if (DJIFlightControllerParamAreMotorsOn){
@@ -208,6 +220,10 @@
                                     DJILogDebug(@"Take off command successfully completed!");
                                 }
                             }];
+                        }
+                        else{
+                            DJILogDebug(@"Drone is on ground. Will take off to hover");
+DJILogDebug(@"coreTelemetry.isFlying. DJIFLightControllerParamiSFlying = %@", DJIFlightControllerParamIsFlying);
                         }
                     }
                     else if (packet_ec->Action == 1) {
@@ -470,6 +486,7 @@
     // if connection fails, we wait one second and retry
     while (self->_retryConnection) {
         if ([DJISDKManager startConnectionToProduct]){
+            DJILogDebug(@"self->_retryConnection is true. Will break while loop now.");
             break;
         }
         else {
@@ -512,11 +529,9 @@
         DJICamera *camera = [DJIUtils fetchCamera];
         if (camera != nil) {
             camera.delegate = self;
-            DJILogDebug(@"DJI Camera connected!");
+            //DJILogDebug(@"DJI Camera connected!");
         }
-        else{
-            DJILogDebug(@"DJI Camera not connected!");
-        }
+
         //[camera setVideoResolutionAndFrameRate:(nonnull DJICameraVideoResolutionAndFrameRate *) DJICameraParam withCompletion:<#^(NSError * _Nullable error)completion#>]
         DJIBattery *battery = [DJIUtils fetchBattery];
         if (battery != nil) {
@@ -525,10 +540,10 @@
         
 
         
-        [flightController setVirtualStickModeEnabled:TRUE
+        /*[flightController setVirtualStickModeEnabled:TRUE
                                       withCompletion:^(NSError * _Nullable error) {
         
-        }];
+        }];*/
         
         [[DJIUtils fetchFlightController] setVerticalControlMode:DJIVirtualStickVerticalControlModePosition];
         [[DJIUtils fetchFlightController] setRollPitchControlMode:DJIVirtualStickRollPitchControlModeVelocity];
@@ -929,14 +944,17 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
     if(([self missionOperator].currentState != DJIWaypointMissionStateExecuting) || ([self missionOperator].currentState != DJIWaypointMissionStateExecutionPaused)){
         DJILogDebug([NSString stringWithFormat:@"Not ready! stopMissionwithCompletion will fail"]);
     }
-    [[self missionOperator] stopMissionWithCompletion:^(NSError * _Nullable error) {
-        if (error) {
-            DJILogDebug(@"Mission failed to stop with error: %@", error);
-        }
-        else{
-            DJILogDebug(@"Stop and hover command successfully completed!");
-        }
-    }];
+    else{
+        [[self missionOperator] stopMissionWithCompletion:^(NSError * _Nullable error) {
+            if (error) {
+                DJILogDebug(@"Mission failed to stop with error: %@", error);
+            }
+            else{
+                DJILogDebug(@"Stop and hover command successfully completed!");
+            }
+        }];
+    }
+
 }
 
 - (void) executeDJIWaypointMission: (DroneInterface::WaypointMission *) mission {
