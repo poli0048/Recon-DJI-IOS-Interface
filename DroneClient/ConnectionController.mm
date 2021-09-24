@@ -974,17 +974,27 @@ didReceiveVideoData:(nonnull uint8_t *)videoBuffer
 }
 
 - (void) startDJIWaypointMission {
-    [[self missionOperator] startMissionWithCompletion:^(NSError * _Nullable error) {
-        if (error) {
-            NSLog(@"ERROR: startMission:withCompletion:. %@", error.description);
-            DJILogDebug(@"startMission Fail: %@", error);
+    int counter = 0;
+    while (counter < 5){
+        if([self missionOperator].currentState != DJIWaypointMissionStateReadyToExecute )
+        {
+            counter = counter + 1;
+            DJILogDebug(@"Attempt %d: Not ready to execute mission. Retrying...", counter);
+            [NSThread sleepForTimeInterval: 1.0];
         }
-        else {
-            NSLog(@"SUCCESS: startMission:withCompletion:.");
-            DJILogDebug(@"startMission Succeeded: %@", error);
+        else{
+            [[self missionOperator] startMissionWithCompletion:^(NSError * _Nullable error) {
+                if (error) {
+                    DJILogDebug(@"Mission failed to stop with error: %@", error);
+                }
+                else{
+                    DJILogDebug(@"startMission Succeeded: %@", error);
+                }
+            }];
+            
+            break;
         }
-        
-    }];
+    }
 }
 
 - (void) stopDJIWaypointMission {
